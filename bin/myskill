@@ -17,7 +17,7 @@ Each IDE keeps the state in its own setting, so the state survives sync.sh:
 
 One exception. Claude Code ignores skillOverrides for a plugin's skill
 (docs: "Plugin skills are not affected by skillOverrides"; measured: a
-`caveman:cavecrew` entry left the skill loadable in a new session). Such a
+"off" entry for a plugin's skill left it loadable in a new session). Such a
 skill is keyed "<plugin>:<skill>" in skillOverrides all the same — that is
 the list — and its SKILL.md in the plugin's current install is renamed to
 SKILL.md.myskill-off. A plugin update brings a fresh SKILL.md, so `apply`
@@ -148,7 +148,7 @@ def plugin_hide(key, off):
     for p, path in plugin_installs():
         if p != plugin:
             continue
-        # A plugin's command (caveman:caveman-init) is a file of its own, and
+        # A plugin's command (<plugin>:<command>) is a file of its own, and
         # skillOverrides misses it the same way: before 2026-10-08 `off` wrote
         # an entry for one, reported off, and the command stayed.
         cmd = os.path.join(path, "commands", skill + ".md")
@@ -203,7 +203,7 @@ def cmd_apply():
     """SessionStart of Claude Code and Codex. Puts back what an update or an
     install took away: a plugin's SKILL.md that came back fresh, and the Codex
     manual file of a skill whose folder was copied over — a skill another
-    repository installs (d2-diagram, qcompact) has no copy in the canon, so
+    repository installs on its own has no copy in the canon, so
     its agents/openai.yaml lived in the installed folder only. Which skills
     are manual is read from Claude Code's user-invocable-only entries. Silent,
     never fails: its stdout would go into the context."""
@@ -268,7 +268,7 @@ def codex_skills():
     skill Codex loads. A plugin's skill is named <plugin>:<name> there — read
     from `codex debug prompt-input`. Only an installed plugin (plugins/cache)
     counts: an enabled plugin without a cache entry is not loaded (measured:
-    superpowers@openai-curated, enabled, has none of its skills in the prompt)."""
+    a <plugin>@openai-curated, enabled, had none of its skills in the prompt)."""
     for p in glob.glob(os.path.join(CODEX, "skills", "*", "SKILL.md")) + \
             glob.glob(os.path.join(CODEX, "skills", ".system", "*", "SKILL.md")):
         d = os.path.basename(os.path.dirname(p))
@@ -285,10 +285,10 @@ def codex_skills():
 
 def codex_enabled_plugins():
     """<name>@<marketplace> of every plugin Codex has installed and enabled.
-    A plugin of a remote marketplace (superpowers@openai-curated-remote) is
+    A plugin of a remote marketplace (<plugin>@openai-curated-remote) is
     enabled on the account, not in config.toml, so `codex plugin list` —
     under a second — is asked, and its answer kept in ~/.cache/myskill/
-    until config.toml or plugins/cache change. Measured: superpowers there
+    until config.toml or plugins/cache change. Measured: such a plugin
     is "installed, enabled" and a live Codex session has its skills, while
     `codex debug prompt-input` shows none of them. Without the CLI, or with
     MYSKILL_NO_PROBE: the [plugins."…"] enabled = true entries of config.toml."""
@@ -490,8 +490,8 @@ def opencode_skills():
 def opencode_plugin_skill_roots():
     """(package, skills dir) of the npm/git plugins whose skills Opencode
     loads. Only Opencode knows that: a plugin may register its skills/
-    (superpowers does, 15 skills) or not (@zilliz/memsearch-opencode ships a
-    skills/ that is never loaded). So the answer comes from `opencode debug
+    or ship a skills/ directory that is never loaded — both kinds were
+    measured. So the answer comes from `opencode debug
     skill` — about 8 s — kept in ~/.cache/myskill/ until opencode.json
     changes. No opencode on PATH → none."""
     path = opencode_path()
@@ -528,8 +528,8 @@ def opencode_plugin_skill_roots():
 def opencode_name(n):
     """The name Opencode knows a skill by. A <plugin>:<skill> that Opencode
     does not load → None: a deny under the bare name would wait for, and then
-    hide, any other skill of that name — terraform:terraform-test once wrote
-    "terraform-test", the name of an own skill."""
+    hide, any other skill of that name — a plugin's acme:test once wrote
+    "test", the name of an own skill."""
     plugin, _, bare = n.rpartition(":")
     for d, native, _ in opencode_skills():
         if (d == n if plugin else bare in (d, native)):
@@ -582,9 +582,9 @@ def opencode(names, mode):
 
 # ── what needs a skill ──────────────────────────────────────────────────────
 # Hidden from the model, a skill breaks whatever counts on it: a hook that
-# reads its SKILL.md (superpowers session-start cats using-superpowers), a rule
-# that tells the model to call it (qrestore), a skill that hands over to it
-# (writing-plans → executing-plans). Measured 2026-10-08 on 74 candidates: a
+# reads its SKILL.md (a plugin's session-start hook that cats it), a rule that
+# tells the model to call it, a skill that hands over to it (a planning skill
+# to the one that executes the plan). Measured 2026-10-08 on 74 candidates: a
 # plain word match flagged `migration`, `setup` and `spec` in 50-80 files each,
 # so only forms that name a skill as a skill count.
 JUNK = re.compile(r"(\.myskill-off|\.skills-tools-disabled|\.bak(\.|$)|__pycache__|\.pyc$|/myskill$)")
@@ -632,8 +632,8 @@ def corpus():
     add("skill", os.path.join(CLAUDE, "commands", "*.md"))
     add("skill", os.path.join(CLAUDE, "agents", "*.md"))
     out = [("hook", "hook commands", "\n".join(cmds))]
-    # A skill or command that is off itself needs nothing: token-budget-advisor
-    # was refused as manual because of a command switched off a minute before.
+    # A skill or command that is off itself needs nothing: a skill was once
+    # refused as manual because of a command switched off a minute before.
     over = (load_json(os.path.join(CLAUDE, "settings.json")) or {}).get("skillOverrides") or {}
     dead = {k for k, v in over.items() if v == "off"}
     for p, label in files.items():
@@ -681,8 +681,8 @@ def dependents(name, docs):
 
 def show_dependents(name, hits, out):
     """One line per file, with the line that names the skill: a rule offering
-    you `/tot` does not break when the model stops seeing tot; a rule telling
-    the model to call qrestore does."""
+    you `/review` does not break when the model stops seeing review; a rule
+    telling the model to call it does."""
     print(f"{name}: needed by", file=out)
     for label, path, line in hits:
         p = re.sub(r"^~/.claude/plugins/cache/[^/]+/([^/]+)/[^/]+/", r"<\1 plugin>/", path.replace(H, "~"))
@@ -690,8 +690,8 @@ def show_dependents(name, hits, out):
 
 
 # ── what a skill needs to work here ─────────────────────────────────────────
-# A skill can be loadable and useless: the victoria* skills need VM_*_URL, and
-# none is set on this machine — which nobody keeps in mind. The needs are
+# A skill can be loadable and useless: a metrics skill needs its METRICS_URL,
+# and when it is not set nobody keeps that in mind. The needs are
 # written down in requires.json, because a scan alone is mostly noise:
 # measured 2026-10-08 over the Claude Code skills, 15 named an unset variable
 # and 6 really lacked a setting; the rest were variables of an example script
@@ -841,7 +841,7 @@ def inventory():
                 continue
             plugin = key.split("@")[0]
             # A plugin's skill is its own row, <plugin>:<skill>: an own skill of
-            # the same name is a different skill (terraform-test is both here).
+            # the same name is a different skill (acme:test and an own test).
             for d in glob.glob(os.path.join(path, "skills", "*")):
                 b = f"{plugin}:{os.path.basename(d)}"
                 live = os.path.join(d, "SKILL.md")
@@ -852,7 +852,7 @@ def inventory():
                 else:
                     continue
                 rows[b]["claude name"] = b
-            for p in glob.glob(os.path.join(path, "commands", "*.md")):     # caveman:caveman-init
+            for p in glob.glob(os.path.join(path, "commands", "*.md")):     # <plugin>:<command>
                 b = f"{plugin}:{os.path.basename(p)[:-3]}"
                 put(b, f"{plugin} plugin", "claude", "on" if model_may(p) else "manual")
                 rows[b]["claude name"] = b

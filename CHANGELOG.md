@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Comments in `bin/myskill` and `tests/test_myskill.sh` use example names
+  instead of the skills of the machine they were measured on.
+
 ## 0.1.0 — 2026-10-14
 
 First release as a repository of its own. Until now `myskill` lived in a

@@ -25,7 +25,7 @@ printf 'model = "kept"\n\n[plugins."plug@m"]\nenabled = true\n\n[[skills.config]
 mkdir -p "$x/plugins/cache/m/plug/1.0/skills/pskill" "$x/plugins/cache/m/plug/1.0/skills/codex-only"
 printf -- '---\nname: pskill\n---\n' > "$x/plugins/cache/m/plug/1.0/skills/pskill/SKILL.md"
 printf -- '---\nname: codex-only\n---\n' > "$x/plugins/cache/m/plug/1.0/skills/codex-only/SKILL.md"
-# A plugin's command (caveman:caveman-init) and a skill its author made user-only
+# A plugin's command (<plugin>:<command>) and a skill its author made user-only
 # (disable-model-invocation: true — "locked by author · user-only" in /skills).
 mkdir -p "$tmp/cache/plug/1.0/commands" "$tmp/cache/plug/1.0/skills/useronly"
 printf -- '---\ndescription: x\n---\n' > "$tmp/cache/plug/1.0/commands/pcmd.md"
@@ -44,7 +44,7 @@ case "$(tr -d ' \n' < "$c/settings.json")" in *'"skillOverrides":{"own":"off","p
     ok "Claude Code: own skill by name, plugin skill as <plugin>:<skill>, the rest kept" ;;
     *) no "Claude Code: own skill by name, plugin skill as <plugin>:<skill>, the rest kept" "$(cat "$c/settings.json")" ;; esac
 # Codex names a plugin's skill <plugin>:<name> (codex debug prompt-input):
-# an entry under the bare name left terraform:terraform-style-guide visible.
+# an entry under the bare name left the plugin's skill visible.
 if grep -q '^name = "own"$' "$x/config.toml" && grep -q '^name = "plug:pskill"$' "$x/config.toml" && grep -q '^model = "kept"$' "$x/config.toml"; then
     ok "Codex: a [[skills.config]] name entry per skill, a plugin's as <plugin>:<name>, the rest kept"
 else no "Codex: a [[skills.config]] name entry per skill, a plugin's as <plugin>:<name>, the rest kept" "$(cat "$x/config.toml")"; fi
@@ -70,8 +70,8 @@ if [ "$(row plug:pcmd)" = "plug:pcmd plug plugin on · ·" ] && [ "$(row plug:us
 else no "list: a plugin's command is a row; an author's user-only skill is manual" "[$(row plug:pcmd)] [$(row plug:useronly)]"; fi
 if [ "$(row plug:codex-only)" = "plug:codex-only plug plugin · on ·" ]; then ok "list: a skill of an enabled Codex plugin is seen in Codex"
 else no "list: a skill of an enabled Codex plugin is seen in Codex" "[$(row plug:codex-only)]"; fi
-# Measured: superpowers@openai-curated is enabled with no cache entry, and
-# none of its skills reach the Codex prompt.
+# Measured: a <plugin>@openai-curated enabled with no cache entry has none of
+# its skills in the Codex prompt.
 if [ -z "$(row curated-skill)" ]; then ok "list: an enabled Codex plugin with no cache entry is not loaded"
 else no "list: an enabled Codex plugin with no cache entry is not loaded" "[$(row curated-skill)]"; fi
 if [ -z "$(OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1 "$M" list --no-color | grep -E '^own ' | grep manual)" ]; then
