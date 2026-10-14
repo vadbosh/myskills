@@ -1,0 +1,28 @@
+{
+  "_comment": "What a skill needs to work on a machine. Copy to requires.json (not tracked by git) and list your own skills. Read by `myskill unusable` (which skills cannot work here) and `myskill probe` (suggestions for this file). env: every one must be set; env_any: at least one; bin: on PATH; mcp: a server in ~/.claude/mcp.json; note: a condition no program can check, shown for a person to judge. An empty entry {} means: checked, needs nothing here — probe skips it.",
+  "metrics-query": {
+    "env": [
+      "METRICS_URL"
+    ]
+  },
+  "observability": {
+    "env_any": [
+      "METRICS_URL",
+      "LOGS_URL"
+    ]
+  },
+  "diagram": {
+    "bin": [
+      "d2"
+    ]
+  },
+  "cluster-debug": {
+    "mcp": [
+      "kubernetes"
+    ]
+  },
+  "cloud-review": {
+    "note": "useful only for Azure and GCP projects"
+  },
+  "commit-helper": {}
+}

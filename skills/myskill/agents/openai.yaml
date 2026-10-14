@@ -1,0 +1,3 @@
+# myskill manual: hidden from the model, callable as $name
+policy:
+  allow_implicit_invocation: false

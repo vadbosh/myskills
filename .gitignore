@@ -1,0 +1,25 @@
+# Timestamped copies left by install.sh and by anyone editing a live file.
+*.bak.*
+*.orig
+*.rej
+
+# Your registry of what your skills need. The template requires.example.json
+# is committed; the real one names this machine's skills and variables.
+requires.json
+
+# Python bytecode, left when a test imports lib/wire.py.
+__pycache__/
+*.py[cod]
+
+# Session memory written by assistant tooling. Local, and none of a public
+# repository's business.
+.memsearch/
+.ai-context/
+.claude/
+.codex/
+CLAUDE.local.md
+
+# Editors and OS noise
+*.swp
+*~
+.DS_Store

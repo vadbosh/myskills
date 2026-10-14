@@ -1,0 +1,1063 @@
+#!/usr/bin/env python3
+"""myskill — on, manual or off for a skill in Claude Code, Codex and Opencode
+at once. Usage: HELP below, or `myskill --help`.
+
+`list` was checked against each IDE's own report on 2026-10-08 — codex debug
+prompt-input, opencode debug skill, Claude Code's skill listing: equal, except
+Claude Code's 12 built-in skills, which no file names.
+
+Each IDE keeps the state in its own setting, so the state survives sync.sh:
+
+  Claude Code  ~/.claude/settings.json      "skillOverrides": {"<name>": "off" | "user-invocable-only"}
+  Codex        ~/.codex/config.toml         [[skills.config]] name = "<name>", enabled = false
+               manual: <skill>/agents/openai.yaml, in the canon too (see MANUAL_YAML)
+  Opencode     ~/.config/opencode/opencode.json
+                                            "permission": {"skill": {"<name>": "deny"}}
+                                            — manual and off alike
+
+One exception. Claude Code ignores skillOverrides for a plugin's skill
+(docs: "Plugin skills are not affected by skillOverrides"; measured: a
+`caveman:cavecrew` entry left the skill loadable in a new session). Such a
+skill is keyed "<plugin>:<skill>" in skillOverrides all the same — that is
+the list — and its SKILL.md in the plugin's current install is renamed to
+SKILL.md.myskill-off. A plugin update brings a fresh SKILL.md, so `apply`
+renames it again; it runs from a SessionStart hook. Give either form of the
+name; a bare one is resolved against the installed plugins.
+
+Each IDE names a skill its own way, and an entry under another name does
+nothing. Claude Code: the directory, <plugin>:<directory> for a plugin's.
+Codex: the frontmatter `name:`, <plugin>:<name> for a plugin's. Opencode: the
+frontmatter `name:`. myskill writes each entry under that IDE's name. Opencode
+also reads ~/.claude/skills and ~/.agents/skills unless
+OPENCODE_DISABLE_CLAUDE_CODE_SKILLS is set, and its deny hides a skill from
+the model only — /skills still runs it: "manual".
+
+A file about to change is copied first to ~/.local/state/myskill/backups,
+three kept.
+
+Replaces skills-tools, which parked skills by moving their folders to
+*/skills-disabled/ and renaming plugin SKILL.md files on every session start.
+On 2026-10-08 the 49 parked folders went back into the skills directories of
+the three IDEs, turned off here, and */skills-disabled/ was removed. A folder
+still found there is shown as "parked", and `on` says it is not moved back.
+The suffix SKILL.md.skills-tools-disabled counts as off too.
+"""
+import glob
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+H = os.path.expanduser("~")
+CLAUDE = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(H, ".claude")
+CODEX = os.environ.get("CODEX_HOME") or os.path.join(H, ".codex")
+OPENCODE = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.join(H, ".config"), "opencode")
+# The same directory install.sh and lib/wire.py back up into; each prunes only
+# the names it wrote, so the three never delete each other's copies.
+BACKUPS = os.environ.get("MYSKILL_BACKUP_DIR") or os.path.join(
+    os.environ.get("XDG_STATE_HOME") or os.path.join(H, ".local", "state"), "myskill", "backups")
+# Where the installed skill folders are copied from, if anywhere: MYSKILL_CANON,
+# else ~/ai-config-source when it has skills/, else none. Not the directory this
+# script lives in: that is the myskills repository, whose skills/ holds only
+# myskill itself, so a Codex manual file for any other skill would land there.
+_HERE = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+_DEFAULT_CANON = os.path.join(H, "ai-config-source")
+CANON = os.environ.get("MYSKILL_CANON") or (
+    _DEFAULT_CANON if os.path.isdir(os.path.join(_DEFAULT_CANON, "skills")) else "")
+STAMP = time.strftime("%Y%m%d-%H%M%S")
+NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
+
+
+def backup(path):
+    if not os.path.exists(path):
+        return
+    os.makedirs(BACKUPS, exist_ok=True)
+    os.chmod(BACKUPS, 0o700)
+    rel = os.path.relpath(path, H) if path.startswith(H + os.sep) else path.lstrip(os.sep)
+    base = os.path.join(BACKUPS, rel.replace(os.sep, "_") + ".bak.")
+    shutil.copy2(path, base + STAMP)
+    old = sorted((f for f in os.listdir(BACKUPS) if os.path.join(BACKUPS, f).startswith(base)),
+                 reverse=True)
+    for f in old[3:]:
+        os.remove(os.path.join(BACKUPS, f))
+
+
+def load_json(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except FileNotFoundError:
+        return None
+    except ValueError:
+        sys.exit(f"myskill: {path} is not valid JSON — not touched")
+
+
+def save_json(path, data):
+    backup(path)
+    tmp = path + ".myskill.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    shutil.copymode(path, tmp)
+    os.replace(tmp, path)
+
+
+# ── Claude Code ─────────────────────────────────────────────────────────────
+def claude_key(name):
+    """A bare name that is no own skill or command but a plugin's skill is
+    keyed <plugin>:<name>, as Claude Code lists it."""
+    if ":" in name:
+        return name
+    if os.path.exists(os.path.join(CLAUDE, "skills", name, "SKILL.md")) or \
+            os.path.exists(os.path.join(CLAUDE, "commands", name + ".md")):
+        return name
+    for plugin, path in plugin_installs():
+        cmd = os.path.join(path, "commands", name + ".md")
+        if skill_dirs(path, name) or any(os.path.exists(cmd + s) for s in ("",) + OFF_SUFFIXES):
+            return f"{plugin}:{name}"
+    return name
+
+
+OFF_SUFFIXES = (".myskill-off", ".skills-tools-disabled")
+
+
+def plugin_installs():
+    """(plugin name, current install path) of every installed plugin."""
+    plugins = (load_json(os.path.join(CLAUDE, "plugins", "installed_plugins.json")) or {}).get("plugins") or {}
+    for key, installs in plugins.items():
+        path = installs[-1].get("installPath") if installs and isinstance(installs[-1], dict) else None
+        if path:
+            yield key.split("@")[0], path
+
+
+def skill_dirs(path, skill):
+    """A plugin may carry a skill twice: skills/<s>/ and plugins/*/skills/<s>/."""
+    return [d for d in glob.glob(os.path.join(path, "skills", skill)) +
+            glob.glob(os.path.join(path, "plugins", "*", "skills", skill)) if os.path.isdir(d)]
+
+
+def plugin_hide(key, off):
+    """Rename SKILL.md of a plugin's skill, or the file of a plugin's command,
+    out of the way, or back. Returns the number of files renamed."""
+    plugin, skill = key.split(":", 1)
+    n = 0
+    for p, path in plugin_installs():
+        if p != plugin:
+            continue
+        # A plugin's command (caveman:caveman-init) is a file of its own, and
+        # skillOverrides misses it the same way: before 2026-10-08 `off` wrote
+        # an entry for one, reported off, and the command stayed.
+        cmd = os.path.join(path, "commands", skill + ".md")
+        lives = [os.path.join(d, "SKILL.md") for d in skill_dirs(path, skill)] + \
+            ([cmd] if any(os.path.exists(cmd + s) for s in ("",) + OFF_SUFFIXES) else [])
+        for live in lives:
+            if off and os.path.exists(live):
+                os.rename(live, live + OFF_SUFFIXES[0])
+                n += 1
+            elif not off and not os.path.exists(live):
+                for suf in OFF_SUFFIXES:
+                    if os.path.exists(live + suf):
+                        os.rename(live + suf, live)
+                        n += 1
+                        break
+    return n
+
+
+def claude(names, mode):
+    path = os.path.join(CLAUDE, "settings.json")
+    data = load_json(path)
+    if data is None:
+        return "Claude Code: no settings.json — skipped"
+    over = data.setdefault("skillOverrides", {})
+    changed, plugin_off, renamed = [], [], 0
+    for n in names:
+        k = claude_key(n)
+        # A plugin's skill has no user-only switch here: skillOverrides does not
+        # reach it, and a renamed SKILL.md is gone for /<name> as well. So
+        # manual is off for it, and said so.
+        want = {"off": "off", "manual": "off" if ":" in k else "user-invocable-only"}.get(mode)
+        if want and over.get(k) != want:
+            over[k] = want
+            (plugin_off if mode == "manual" and ":" in k else changed).append(k)
+        elif mode == "on" and k in over:
+            del over[k]
+            changed.append(k)
+        if ":" in k:        # skillOverrides does not reach a plugin's skill
+            renamed += plugin_hide(k, mode != "on")
+    if not over:
+        data.pop("skillOverrides")
+    if changed or plugin_off:
+        save_json(path, data)
+    parts = [f"{mode} {' '.join(changed)}"] if changed else []
+    if plugin_off:
+        parts.append(f"off {' '.join(plugin_off)} (a plugin's skill: no manual in Claude Code)")
+    files = f" ({renamed} plugin SKILL.md renamed)" if renamed else ""
+    return f"Claude Code: {'; '.join(parts)}{files}" if parts or renamed else "Claude Code: no change"
+
+
+def cmd_apply():
+    """SessionStart of Claude Code and Codex. Puts back what an update or an
+    install took away: a plugin's SKILL.md that came back fresh, and the Codex
+    manual file of a skill whose folder was copied over — a skill another
+    repository installs (d2-diagram, qcompact) has no copy in the canon, so
+    its agents/openai.yaml lived in the installed folder only. Which skills
+    are manual is read from Claude Code's user-invocable-only entries. Silent,
+    never fails: its stdout would go into the context."""
+    try:
+        over = (load_json(os.path.join(CLAUDE, "settings.json")) or {}).get("skillOverrides") or {}
+        for k, v in over.items():
+            if ":" in k and v == "off":
+                plugin_hide(k, True)
+            elif ":" not in k and v == "user-invocable-only":
+                own = codex_own_dir(k)
+                if own:
+                    codex_yaml(*own, manual=True)
+    except (Exception, SystemExit):     # noqa: BLE001 — a hook must not stop the session
+        pass
+    # A new skill nobody has checked yet: one line for the user, and only then.
+    # systemMessage is shown by Claude Code and, as a warning, by Codex
+    # (codex-rs hooks/src/events/session_start.rs); plain stdout would go to the
+    # model instead.
+    try:
+        hits = probe_hits() if requires_path() and os.path.exists(requires_path()) else []
+        if hits:
+            names = " ".join(n for n, _, _ in hits[:4]) + (" …" if len(hits) > 4 else "")
+            print(json.dumps({"systemMessage": f"myskill: {len(hits)} skill(s) not checked for what they "
+                                               f"need here ({names}) — run myskill probe"}))
+    except (Exception, SystemExit):     # noqa: BLE001
+        pass
+    return 0
+
+
+# ── Codex ───────────────────────────────────────────────────────────────────
+def codex_block(name):
+    return re.compile(r'\n*\[\[skills\.config\]\]\nname = "' + re.escape(name) + r'"\nenabled = false\n')
+
+
+def model_may(path):
+    """False when the frontmatter says `disable-model-invocation: true`: the
+    author made it user-only, the model is not shown it."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read(4000)
+    except OSError:
+        return True
+    head = text.split("\n---", 1)[0] if text.startswith("---") else ""
+    return not re.search(r"^disable-model-invocation:\s*true\b", head, re.M)
+
+
+def front_name(path):
+    """The `name:` of a SKILL.md frontmatter, or None. Codex and Opencode name
+    a skill by it; Claude Code names it by its directory."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read(4000)
+    except OSError:
+        return None
+    head = text.split("\n---", 1)[0] if text.startswith("---") else ""
+    m = re.search(r"^name:\s*['\"]?([^'\"\n]+?)['\"]?\s*$", head, re.M)
+    return m.group(1).strip() if m else None
+
+
+def codex_skills():
+    """(directory name, the name Codex gives it, SKILL.md path, kind) of every
+    skill Codex loads. A plugin's skill is named <plugin>:<name> there — read
+    from `codex debug prompt-input`. Only an installed plugin (plugins/cache)
+    counts: an enabled plugin without a cache entry is not loaded (measured:
+    superpowers@openai-curated, enabled, has none of its skills in the prompt)."""
+    for p in glob.glob(os.path.join(CODEX, "skills", "*", "SKILL.md")) + \
+            glob.glob(os.path.join(CODEX, "skills", ".system", "*", "SKILL.md")):
+        d = os.path.basename(os.path.dirname(p))
+        yield d, front_name(p) or d, p, "skill"
+    for key in codex_enabled_plugins():
+        pname, _, market = key.partition("@")
+        versions = sorted(glob.glob(os.path.join(CODEX, "plugins", "cache", market, pname, "*")),
+                          key=os.path.getmtime)
+        if versions:
+            for p in glob.glob(os.path.join(versions[-1], "skills", "*", "SKILL.md")):
+                d = os.path.basename(os.path.dirname(p))
+                yield d, f"{pname}:{front_name(p) or d}", p, f"{pname} plugin"
+
+
+def codex_enabled_plugins():
+    """<name>@<marketplace> of every plugin Codex has installed and enabled.
+    A plugin of a remote marketplace (superpowers@openai-curated-remote) is
+    enabled on the account, not in config.toml, so `codex plugin list` —
+    under a second — is asked, and its answer kept in ~/.cache/myskill/
+    until config.toml or plugins/cache change. Measured: superpowers there
+    is "installed, enabled" and a live Codex session has its skills, while
+    `codex debug prompt-input` shows none of them. Without the CLI, or with
+    MYSKILL_NO_PROBE: the [plugins."…"] enabled = true entries of config.toml."""
+    try:
+        text = open(os.path.join(CODEX, "config.toml"), encoding="utf-8").read()
+    except OSError:
+        return []
+    from_config = re.findall(r'\[plugins\."([^"]+)"\]\nenabled = true', text)
+    if os.environ.get("MYSKILL_NO_PROBE") or not shutil.which("codex"):
+        return from_config
+    cache_dir = os.path.join(CODEX, "plugins", "cache")
+    key = f"{os.stat(os.path.join(CODEX, 'config.toml')).st_mtime_ns}:" + \
+        ",".join(sorted(glob.glob(os.path.join(cache_dir, "*", "*", "*"))))
+    store = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(H, ".cache"), "myskill",
+                         "codex-plugins.json")
+    saved = load_json(store) or {}
+    if saved.get("key") == key:
+        return saved.get("plugins", [])
+    try:
+        with tempfile.TemporaryFile("w+", encoding="utf-8") as fh:
+            subprocess.run(["codex", "plugin", "list"], stdout=fh, stderr=subprocess.DEVNULL,
+                           text=True, timeout=60, cwd=tempfile.gettempdir())
+            fh.seek(0)
+            out = fh.read()
+    except (OSError, subprocess.SubprocessError):
+        return from_config
+    plugins = sorted({line.split()[0] for line in out.splitlines()
+                      if line.split() and "@" in line.split()[0] and "installed, enabled" in line})
+    if not out.strip():
+        return from_config
+    os.makedirs(os.path.dirname(store), exist_ok=True)
+    with open(store, "w", encoding="utf-8") as fh:
+        json.dump({"key": key, "plugins": plugins}, fh)
+    return plugins
+
+
+def codex_manual(path):
+    """agents/openai.yaml `allow_implicit_invocation: false`: hidden from the
+    model by its author, callable as $name."""
+    try:
+        y = open(os.path.join(os.path.dirname(path), "agents", "openai.yaml"), encoding="utf-8").read()
+    except OSError:
+        return False
+    return bool(re.search(r"^\s*allow_implicit_invocation:\s*false\b", y, re.M))
+
+
+def codex_name(n):
+    """The name Codex knows a skill by: its frontmatter name, prefixed
+    <plugin>: for a plugin's skill. Unknown → the name as given."""
+    plugin, _, bare = n.rpartition(":")
+    for d, native, _, kind in codex_skills():
+        if (d == bare or native.split(":")[-1] == bare) and (not plugin or kind == f"{plugin} plugin"):
+            return native
+    return n
+
+
+# Codex has one user-only switch, and it lives in the skill's own folder:
+# agents/openai.yaml, policy.allow_implicit_invocation: false — hidden from the
+# model, callable as $name (codex-rs skills/src/model.rs). config.toml only has
+# `enabled`. sync.sh replaces an installed skill folder wholesale (rmtree +
+# copytree), so the file is written into the canon as well, where sync takes
+# it from; the canon change is yours to commit.
+MANUAL_YAML = ("# myskill manual: hidden from the model, callable as $name\n"
+               "policy:\n  allow_implicit_invocation: false\n")
+
+
+def codex_own_dir(given):
+    """(directory name, installed folder) of an own Codex skill, or None."""
+    bare = given.split(":")[-1]
+    for d, native, p, kind in codex_skills():
+        if kind == "skill" and bare in (d, native):
+            return d, os.path.dirname(p)
+    return None
+
+
+def codex_yaml(d, folder, manual):
+    """Write or remove agents/openai.yaml in the installed folder and the
+    canon one. Returns (changed, a note or None). A file of another author
+    is never touched."""
+    targets = [folder] + [c for c in (os.path.join(CANON, "skills", d),) if CANON and os.path.isdir(c)]
+    changed, note = False, None
+    for t in targets:
+        y = os.path.join(t, "agents", "openai.yaml")
+        mine = os.path.exists(y) and open(y, encoding="utf-8").read() == MANUAL_YAML
+        if os.path.exists(y) and not mine:
+            note = f"{y.replace(H, '~')} has its own content — not touched"
+            continue
+        if manual and not mine:
+            os.makedirs(os.path.dirname(y), exist_ok=True)
+            with open(y, "w", encoding="utf-8") as fh:
+                fh.write(MANUAL_YAML)
+            changed = True
+        elif not manual and mine:
+            os.remove(y)
+            if not os.listdir(os.path.dirname(y)):
+                os.rmdir(os.path.dirname(y))
+            changed = True
+    if changed and len(targets) > 1:
+        note = note or f"commit {os.path.join(targets[1], 'agents', 'openai.yaml').replace(H, '~')} in the canon"
+    return changed, note
+
+
+def codex(names, mode):
+    path = os.path.join(CODEX, "config.toml")
+    if not os.path.exists(path):
+        return "Codex: no config.toml — skipped"
+    text = open(path, encoding="utf-8").read()
+    new, changed, plugin_off, notes = text, [], [], []
+    for given in names:
+        n = codex_name(given)
+        own = codex_own_dir(given)
+        # A plugin's skill folder is the plugin's, so manual is off for it. A
+        # name Codex does not have at all (a Claude Code command) gets nothing:
+        # before, manual wrote enabled = false for git and called it a plugin's.
+        plugin = not own and any(native == n for _, native, _, _ in codex_skills())
+        off = mode == "off" or (mode == "manual" and plugin)
+        if off and not codex_block(n).search(new):
+            new = new.rstrip("\n") + f'\n\n[[skills.config]]\nname = "{n}"\nenabled = false\n'
+            (plugin_off if mode == "manual" else changed).append(n)
+        elif not off:
+            for m in dict.fromkeys((n, given, given.split(":")[-1])):    # also an entry under an older name
+                if codex_block(m).search(new):
+                    new = codex_block(m).sub("\n", new, count=1)
+                    if mode == "on":
+                        changed.append(m)
+        if own:
+            done, note = codex_yaml(*own, manual=mode == "manual")
+            if done and mode == "manual":
+                changed.append(n)
+            elif done and n not in changed:
+                changed.append(n)
+            if note:
+                notes.append(note)
+    if new != text:
+        backup(path)
+        with open(path + ".myskill.tmp", "w", encoding="utf-8") as fh:
+            fh.write(new)
+        shutil.copymode(path, path + ".myskill.tmp")
+        os.replace(path + ".myskill.tmp", path)
+    parts = [f"{mode} {' '.join(dict.fromkeys(changed))}"] if changed else []
+    if plugin_off:
+        parts.append(f"off {' '.join(plugin_off)} (a plugin's skill: no manual in Codex)")
+    tail = "".join(f"\n  note: {x}" for x in notes)
+    return (f"Codex: {'; '.join(parts)}" if parts else "Codex: no change") + tail
+
+
+def codex_off():
+    try:
+        text = open(os.path.join(CODEX, "config.toml"), encoding="utf-8").read()
+    except OSError:
+        return []
+    return re.findall(r'\[\[skills\.config\]\]\nname = "([^"]+)"\nenabled = false', text)
+
+
+# ── Opencode ────────────────────────────────────────────────────────────────
+def opencode_path():
+    for n in ("opencode.jsonc", "opencode.json", "config.json"):
+        p = os.path.join(OPENCODE, n)
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def opencode_reads_claude():
+    """False when OPENCODE_DISABLE_CLAUDE_CODE(_SKILLS) is set — in this
+    environment, or exported by ~/.bashrc, where the shell that starts
+    Opencode gets it even when myskill itself runs without it."""
+    flags = ("OPENCODE_DISABLE_CLAUDE_CODE", "OPENCODE_DISABLE_CLAUDE_CODE_SKILLS")
+    if any(os.environ.get(f) for f in flags):
+        return False
+    try:
+        rc = open(os.path.join(H, ".bashrc"), encoding="utf-8", errors="replace").read()
+    except OSError:
+        return True
+    return not re.search(r"^\s*export\s+(" + "|".join(flags) + r")=(1|true)\b", rc, re.M)
+
+
+def opencode_skills():
+    """(directory name, the name Opencode gives it, SKILL.md path) of every
+    skill Opencode discovers: its own skills directory first, then the
+    Claude Code one, which it also reads (measured with `opencode debug
+    skill`: 94 from ~/.config/opencode/skills, 14 more from ~/.claude/skills).
+    Named by the frontmatter name; the first one found wins."""
+    seen = set()
+    roots = [(os.path.join(OPENCODE, "skills"), None)]
+    if opencode_reads_claude():
+        roots += [(os.path.join(CLAUDE, "skills"), None), (os.path.join(H, ".agents", "skills"), None)]
+    roots += [(r, pkg) for pkg, r in opencode_plugin_skill_roots()]
+    for root, pkg in roots:
+        for p in sorted(glob.glob(os.path.join(root, "*", "SKILL.md"))):
+            d = os.path.basename(os.path.dirname(p))
+            native = front_name(p) or d
+            if native not in seen:
+                seen.add(native)
+                # a plugin's skill shares the <plugin>:<skill> row of the other IDEs
+                yield (f"{pkg}:{d}" if pkg else d), native, p
+
+
+def opencode_plugin_skill_roots():
+    """(package, skills dir) of the npm/git plugins whose skills Opencode
+    loads. Only Opencode knows that: a plugin may register its skills/
+    (superpowers does, 15 skills) or not (@zilliz/memsearch-opencode ships a
+    skills/ that is never loaded). So the answer comes from `opencode debug
+    skill` — about 8 s — kept in ~/.cache/myskill/ until opencode.json
+    changes. No opencode on PATH → none."""
+    path = opencode_path()
+    if not path or not shutil.which("opencode") or os.environ.get("MYSKILL_NO_PROBE"):
+        return []
+    st = os.stat(path)
+    key = f"{st.st_mtime_ns}:{st.st_size}"
+    cache = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(H, ".cache"), "myskill",
+                         "opencode-plugin-skills.json")
+    saved = load_json(cache) or {}
+    if saved.get("key") == key:
+        return [tuple(r) for r in saved.get("roots", [])]
+    # Into a file, not a pipe: through a pipe opencode 1.18.35 cut its JSON off
+    # at about 58 KB, mid-string (measured); a file gets all of it.
+    try:
+        with tempfile.TemporaryFile("w+", encoding="utf-8") as fh:
+            subprocess.run(["opencode", "debug", "skill"], stdout=fh, stderr=subprocess.DEVNULL,
+                           text=True, timeout=120, cwd=tempfile.gettempdir())
+            fh.seek(0)
+            skills = json.load(fh)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+    roots = set()
+    for s in skills:
+        m = re.search(r"^(.*/node_modules/((?:@[^/]+/)?[^/]+)/skills)/[^/]+/SKILL\.md$", s.get("location") or "")
+        if m and "/opencode/packages/" in m.group(1):
+            roots.add((m.group(2).split("/")[-1], m.group(1)))
+    os.makedirs(os.path.dirname(cache), exist_ok=True)
+    with open(cache, "w", encoding="utf-8") as fh:
+        json.dump({"key": key, "roots": sorted(roots)}, fh)
+    return sorted(roots)
+
+
+def opencode_name(n):
+    """The name Opencode knows a skill by. A <plugin>:<skill> that Opencode
+    does not load → None: a deny under the bare name would wait for, and then
+    hide, any other skill of that name — terraform:terraform-test once wrote
+    "terraform-test", the name of an own skill."""
+    plugin, _, bare = n.rpartition(":")
+    for d, native, _ in opencode_skills():
+        if (d == n if plugin else bare in (d, native)):
+            return native
+    return None if plugin else bare
+
+
+def opencode(names, mode):
+    # deny is already "manual" there: hidden from the model, /skills runs it.
+    off = mode != "on"
+    path = opencode_path()
+    data = load_json(path) if path else None
+    if data is None:
+        return "Opencode: no opencode.json — skipped"
+    perm = data.setdefault("permission", {})
+    if isinstance(perm.get("skill"), str):
+        return f"Opencode: permission.skill is \"{perm['skill']}\" for all — not touched"
+    skill = perm.setdefault("skill", {})
+    changed, commands = [], []
+    for given in names:
+        n = opencode_name(given)
+        if n is None:           # a plugin's skill Opencode does not load
+            continue
+        # A command is a prompt you run from the TUI, not shown to the model
+        # (docs: "a prompt you want to run when that command is executed"),
+        # and Opencode has no switch for one: permission.skill does not reach
+        # it. A deny written for one reported off and changed nothing.
+        if off and os.path.exists(os.path.join(OPENCODE, "commands", n + ".md")) and \
+                not any(native == n for _, native, _ in opencode_skills()):
+            commands.append(n)
+            continue
+        if off and skill.get(n) != "deny":
+            skill[n] = "deny"
+            changed.append(n)
+        elif not off:
+            for m in dict.fromkeys((n, given)):     # also an entry under the name as given
+                if m in skill:
+                    del skill[m]
+                    changed.append(m)
+    if not skill:
+        perm.pop("skill")
+    if not perm:
+        data.pop("permission")
+    if changed:
+        save_json(path, data)
+    tail = (f"\n  note: {' '.join(commands)} — an Opencode command: the model never sees it, and "
+            "Opencode cannot turn it off; delete the file to remove it" if commands else "")
+    return (f"Opencode: {mode} {' '.join(changed)}" if changed else "Opencode: no change") + tail
+
+
+# ── what needs a skill ──────────────────────────────────────────────────────
+# Hidden from the model, a skill breaks whatever counts on it: a hook that
+# reads its SKILL.md (superpowers session-start cats using-superpowers), a rule
+# that tells the model to call it (qrestore), a skill that hands over to it
+# (writing-plans → executing-plans). Measured 2026-10-08 on 74 candidates: a
+# plain word match flagged `migration`, `setup` and `spec` in 50-80 files each,
+# so only forms that name a skill as a skill count.
+JUNK = re.compile(r"(\.myskill-off|\.skills-tools-disabled|\.bak(\.|$)|__pycache__|\.pyc$|/myskill$)")
+
+
+def hook_commands(obj):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == "command" and isinstance(v, str):
+                yield v
+            else:
+                yield from hook_commands(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from hook_commands(v)
+
+
+def corpus():
+    """[(label, path, text)]: hook commands and the scripts they run, hook
+    folders of the plugins, rules, and every skill, command and agent of
+    Claude Code — own or a plugin's."""
+    files = {}
+
+    def add(label, pattern):
+        for p in glob.glob(pattern, recursive=True):
+            if os.path.isfile(p) and not JUNK.search(p) and os.path.getsize(p) < 1_000_000:
+                files.setdefault(p, label)
+
+    cmds = []
+    for js in (os.path.join(CLAUDE, "settings.json"), os.path.join(CODEX, "hooks.json")):
+        for c in hook_commands((load_json(js) or {}).get("hooks") or {}):
+            cmds.append(c)
+            for tok in re.findall(r"(?:~|/)[\w./~-]+", c):
+                add("hook", os.path.expanduser(tok))
+    add("hook", os.path.join(CLAUDE, "hooks", "*"))
+    add("hook", os.path.join(OPENCODE, "plugins", "*"))
+    for _, path in plugin_installs():
+        add("hook", os.path.join(path, "hooks", "**", "*"))
+        add("skill", os.path.join(path, "skills", "**", "*.md"))
+        add("skill", os.path.join(path, "commands", "*.md"))
+    add("rule", os.path.join(CLAUDE, "rules", "*.md"))
+    add("rule", os.path.join(CLAUDE, "CLAUDE.md"))
+    add("rule", os.path.join(CODEX, "AGENTS.md"))
+    add("skill", os.path.join(CLAUDE, "skills", "*", "**", "*.md"))
+    add("skill", os.path.join(CLAUDE, "commands", "*.md"))
+    add("skill", os.path.join(CLAUDE, "agents", "*.md"))
+    out = [("hook", "hook commands", "\n".join(cmds))]
+    # A skill or command that is off itself needs nothing: token-budget-advisor
+    # was refused as manual because of a command switched off a minute before.
+    over = (load_json(os.path.join(CLAUDE, "settings.json")) or {}).get("skillOverrides") or {}
+    dead = {k for k, v in over.items() if v == "off"}
+    for p, label in files.items():
+        m = re.search(r"/(?:skills/([^/]+)/|commands/([^/]+)\.md$)", p)
+        if m:
+            owner = m.group(1) or m.group(2)
+            plugin = re.search(r"/plugins/cache/[^/]+/([^/]+)/", p)
+            if (f"{plugin.group(1)}:{owner}" if plugin else owner) in dead:
+                continue
+        try:
+            with open(p, encoding="utf-8", errors="replace") as fh:
+                out.append((label, p, fh.read()))
+        except OSError:
+            pass
+    return out
+
+
+def dependents(name, docs):
+    """Files that name the skill as a skill: its folder in a path, the
+    <plugin>:<name> form, /name, a Skill tool input, or `name` / "name skill"
+    on a line that says skill. The skill's own files do not count."""
+    bare = name.split(":")[-1]
+    b = re.escape(bare)
+    strong = re.compile("|".join([
+        r"skills/" + b + r"/",
+        r"(?<![\w:-])[\w-]+:" + b + r"(?![\w:-])",      # not arn:aws:eks:…
+        r"(?<![\w/.~-])/" + b + r"(?![\w/.-])",
+        r"""["']?skill["']?\s*[:=]\s*["']""" + b + r"""["']"""]))
+    weak = re.compile("|".join([r"`" + b + r"`", r"(?<![\w-])" + b + r"\s+skill",
+                                r"skill\s+`?" + b + r"(?![\w-])"]), re.I)
+    own = re.compile(r"/(skills/" + b + r"/|commands/" + b + r"\.md$)")
+    hits = []
+    for label, path, text in docs:
+        # a substring test first: the regexes over every line cost 4 s a run
+        if bare.lower() not in text.lower() or own.search(path):
+            continue
+        for ln in text.splitlines():
+            if bare.lower() in ln.lower() and (strong.search(ln) or ("skill" in ln.lower() and weak.search(ln))):
+                ln = " ".join(ln.split())
+                at = max(0, ln.lower().find(bare.lower()) - 40)
+                hits.append((label, path, ("…" if at else "") + ln[at:at + 90]))
+                break
+    return hits
+
+
+def show_dependents(name, hits, out):
+    """One line per file, with the line that names the skill: a rule offering
+    you `/tot` does not break when the model stops seeing tot; a rule telling
+    the model to call qrestore does."""
+    print(f"{name}: needed by", file=out)
+    for label, path, line in hits:
+        p = re.sub(r"^~/.claude/plugins/cache/[^/]+/([^/]+)/[^/]+/", r"<\1 plugin>/", path.replace(H, "~"))
+        print(f"  {label:5} {p}\n        {line}", file=out)
+
+
+# ── what a skill needs to work here ─────────────────────────────────────────
+# A skill can be loadable and useless: the victoria* skills need VM_*_URL, and
+# none is set on this machine — which nobody keeps in mind. The needs are
+# written down in requires.json, because a scan alone is mostly noise:
+# measured 2026-10-08 over the Claude Code skills, 15 named an unset variable
+# and 6 really lacked a setting; the rest were variables of an example script
+# (BASH_SOURCE, PIPESTATUS) or of GitLab CI. The scan only suggests (probe).
+def requires_path():
+    """MYSKILL_REQUIRES, else requires.json of the checkout this script runs
+    from, else the copy install.sh puts in ~/.local/share/myskill/."""
+    if os.environ.get("MYSKILL_REQUIRES"):
+        return os.environ["MYSKILL_REQUIRES"]
+    here = os.path.join(_HERE, "requires.json")
+    if os.path.isfile(here):
+        return here
+    return os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(H, ".local", "share"),
+                        "myskill", "requires.json")
+
+
+def mcp_servers():
+    names = set()
+    for p in (os.path.join(CLAUDE, "mcp.json"), os.path.join(H, ".claude.json")):
+        names |= set(((load_json(p) or {}).get("mcpServers") or {}).keys())
+    return {n.lower().replace("-", "_") for n in names}
+
+
+def lacks(need, servers):
+    """What of one entry is missing here, as short phrases."""
+    out = []
+    env = [e for e in need.get("env", []) if not os.environ.get(e)]
+    if env:
+        out.append("env " + " ".join(env))
+    anyof = need.get("env_any", [])
+    if anyof and not any(os.environ.get(e) for e in anyof):
+        out.append("env, one of " + " ".join(anyof))
+    out += [f"bin {b}" for b in need.get("bin", []) if not shutil.which(b)]
+    out += [f"mcp {m}" for m in need.get("mcp", []) if m.lower().replace("-", "_") not in servers]
+    return out
+
+
+def cmd_unusable():
+    path = requires_path()
+    reg = (load_json(path) if path else None) or {}
+    if not reg:
+        print(f"myskill: no requires.json{' at ' + path if path else ''} — nothing is known to check;"
+              " start from requires.example.json in the myskills repository")
+        return 2
+    servers, rows, notes = mcp_servers(), [], []
+    for name, need in sorted(reg.items()):
+        if name.startswith("_") or not isinstance(need, dict):
+            continue
+        miss = lacks(need, servers)
+        if miss:
+            rows.append((name, "; ".join(miss)))
+        if need.get("note"):
+            notes.append((name, need["note"]))
+    w = max([len(n) for n, _ in rows + notes] or [0])
+    print("cannot work on this machine:" if rows else "every skill in the registry has what it needs here")
+    for n, m in rows:
+        print(f"  {n:{w}}  missing {m}")
+    if notes:
+        print("\nfor you to judge:")
+        for n, t in notes:
+            print(f"  {n:{w}}  {t}")
+    return 0
+
+
+def probe_hits():
+    """[(skill, unset variables, missing MCP servers)] for the Claude Code
+    skills that are not in requires.json yet."""
+    reg = (load_json(requires_path()) if requires_path() else None) or {}
+    common = {"HOME", "PATH", "PWD", "USER", "SHELL", "TERM", "LANG", "TMPDIR", "ARGUMENTS", "EDITOR", "OLDPWD"}
+    servers, hits = mcp_servers(), []
+    for p in sorted(glob.glob(os.path.join(CLAUDE, "skills", "*", "SKILL.md"))):
+        name = os.path.basename(os.path.dirname(p))
+        if name in reg:
+            continue
+        text = open(p, encoding="utf-8", errors="replace").read()
+        env = sorted({e for e in re.findall(r"\$\{?([A-Z][A-Z0-9_]{3,})(?![A-Za-z0-9_])", text)
+                      if e not in common and not e.startswith(("CLAUDE_", "OPENCODE_", "CODEX_", "XDG_"))
+                      and not os.environ.get(e)})
+        mcp = sorted({m for m in re.findall(r"mcp__([A-Za-z0-9_-]+?)__", text)
+                      if m.lower().replace("-", "_") not in servers})
+        if env or mcp:
+            hits.append((name, env, mcp))
+    return hits
+
+
+def cmd_probe():
+    """Suggestions for requires.json from what each Claude Code SKILL.md
+    names: environment variables that are not set, MCP tools of a server that
+    is not configured. Writes nothing; most hits are example variables."""
+    hits = probe_hits()
+    for name, env, mcp in hits:
+        print(f"{name:34} " + (f"env? {' '.join(env)}" if env else "") + (f"  mcp? {' '.join(mcp)}" if mcp else ""))
+    if not hits:
+        print("nothing to suggest: every skill that names an unset variable or MCP server is in the registry")
+    return 0
+
+
+def parked(name):
+    n = name.split(":")[-1]
+    return [d for d in (os.path.join(CLAUDE, "skills-disabled", n), os.path.join(CODEX, "skills-disabled", n),
+                        os.path.join(OPENCODE, "skills-disabled", n)) if os.path.isdir(d)]
+
+
+IDES = ("claude", "codex", "opencode")
+TITLE = {"claude": "Claude", "codex": "Codex", "opencode": "Opencode"}
+
+
+def names_in(root, pattern):
+    return {os.path.basename(os.path.dirname(p)) if p.endswith(".md") and "skills" in p
+            and os.path.basename(p).startswith("SKILL") else os.path.basename(p)[:-3]
+            for p in glob.glob(os.path.join(root, pattern))}
+
+
+def inventory():
+    """{name: {"kind": str, ide: "on" | "manual" | "off" | "parked"}} — a
+    missing ide key means the skill does not exist in that IDE. An entry that
+    turns off a skill the IDE does not have adds no cell: it waits for it."""
+    rows = {}
+    rank = {None: 0, "parked": 1, "on": 2, "manual": 3, "off": 4}
+
+    def put(name, kind, ide, state):
+        r = rows.setdefault(name, {"kind": kind})
+        if rank[state] > rank[r.get(ide)]:
+            r[ide] = state
+
+    # Claude Code
+    if os.path.isdir(CLAUDE):
+        settings = load_json(os.path.join(CLAUDE, "settings.json")) or {}
+        over, enabled = settings.get("skillOverrides") or {}, settings.get("enabledPlugins") or {}
+        def state(n, p):
+            if over.get(n) == "off":
+                return "off"
+            # user-only by the user's override or by the author's frontmatter:
+            # "locked by author · user-only" in the /skills menu
+            return "manual" if over.get(n) == "user-invocable-only" or not model_may(p) else "on"
+
+        for p in glob.glob(os.path.join(CLAUDE, "skills", "*", "SKILL.md")):
+            n = os.path.basename(os.path.dirname(p))
+            put(n, "skill", "claude", state(n, p))
+        for p in glob.glob(os.path.join(CLAUDE, "commands", "*.md")):
+            n = os.path.basename(p)[:-3]
+            put(n, "command", "claude", state(n, p))
+        installs = (load_json(os.path.join(CLAUDE, "plugins", "installed_plugins.json")) or {}).get("plugins") or {}
+        for key, inst in installs.items():
+            path = inst[-1].get("installPath") if inst and isinstance(inst[-1], dict) else None
+            if not path or not enabled.get(key):
+                continue
+            plugin = key.split("@")[0]
+            # A plugin's skill is its own row, <plugin>:<skill>: an own skill of
+            # the same name is a different skill (terraform-test is both here).
+            for d in glob.glob(os.path.join(path, "skills", "*")):
+                b = f"{plugin}:{os.path.basename(d)}"
+                live = os.path.join(d, "SKILL.md")
+                if os.path.exists(live):
+                    put(b, f"{plugin} plugin", "claude", "on" if model_may(live) else "manual")
+                elif any(os.path.exists(live + s) for s in OFF_SUFFIXES):
+                    put(b, f"{plugin} plugin", "claude", "off")
+                else:
+                    continue
+                rows[b]["claude name"] = b
+            for p in glob.glob(os.path.join(path, "commands", "*.md")):     # caveman:caveman-init
+                b = f"{plugin}:{os.path.basename(p)[:-3]}"
+                put(b, f"{plugin} plugin", "claude", "on" if model_may(p) else "manual")
+                rows[b]["claude name"] = b
+            for s in OFF_SUFFIXES:
+                for p in glob.glob(os.path.join(path, "commands", "*.md" + s)):
+                    b = f"{plugin}:{os.path.basename(p)[:-3 - len(s)]}"
+                    put(b, f"{plugin} plugin", "claude", "off")
+                    rows[b]["claude name"] = b
+        for d in glob.glob(os.path.join(CLAUDE, "skills-disabled", "*")):
+            put(os.path.basename(d), "skill", "claude", "parked")
+
+    # Codex
+    if os.path.isdir(CODEX):
+        try:
+            text = open(os.path.join(CODEX, "config.toml"), encoding="utf-8").read()
+        except OSError:
+            text = ""
+        off_names = set(codex_off())
+        off_paths = set(re.findall(r'\[\[skills\.config\]\]\npath = "([^"]+)"\nenabled = false', text))
+        # A row is keyed by directory name (<plugin>:<directory> for a plugin's
+        # skill), as Claude Code shows it; the state is decided under the name
+        # Codex itself uses (see codex_skills).
+        for d, native, p, kind in codex_skills():
+            key = f"{kind.split()[0]}:{d}" if kind.endswith(" plugin") else d
+            state = "off" if native in off_names or p in off_paths else \
+                "manual" if codex_manual(p) else "on"
+            put(key, kind, "codex", state)
+            rows[key]["codex name"] = native
+        for d in glob.glob(os.path.join(CODEX, "skills-disabled", "*")):
+            put(os.path.basename(d), "skill", "codex", "parked")
+
+    # Opencode
+    if os.path.isdir(OPENCODE):
+        path = opencode_path()
+        perm = (((load_json(path) if path else None) or {}).get("permission") or {}).get("skill") or {}
+        deny = {k for k, v in perm.items() if v == "deny"} if isinstance(perm, dict) else set()
+        # deny hides a skill from the model; you can still run it from /skills.
+        for d, native, p in opencode_skills():
+            put(d, f"{d.split(':')[0]} plugin" if ":" in d else "skill", "opencode",
+                "manual" if native in deny else "on")
+            rows[d]["opencode name"] = native
+        for p in glob.glob(os.path.join(OPENCODE, "commands", "*.md")):
+            put(os.path.basename(p)[:-3], "command", "opencode", "manual")     # you run it; the model is not shown it
+        for d in glob.glob(os.path.join(OPENCODE, "skills-disabled", "*")):
+            put(os.path.basename(d), "skill", "opencode", "parked")
+    return rows
+
+
+def cmd_list(args):
+    color = ("--color" in args or (sys.stdout.isatty() and not os.environ.get("NO_COLOR"))) \
+        and "--no-color" not in args
+    args = [a for a in args if a not in ("--color", "--no-color")]
+    want = args[0] if args else ""
+    rows = inventory()
+    present = {ide: any(ide in r for r in rows.values()) for ide in IDES}
+
+    def paint(text, code):
+        return f"\033[{code}m{text}\033[0m" if color else text
+
+    if "--json" in args:            # for checks: every row with the name each IDE uses
+        print(json.dumps(rows, indent=1, sort_keys=True))
+        return 0
+    cell = {"on": ("on", "32"), "manual": ("manual", "33"), "off": ("off", "31"),
+            "parked": ("parked", "2;31"), None: ("·", "2")}
+    # A state filter keeps the rows with that state in at least one IDE. `off`
+    # used to mean "not on somewhere", so once every Opencode command counted as
+    # manual, `list off` listed all of them; `manual` was searched as a name.
+    wanted = {"on": ("on",), "manual": ("manual",), "off": ("off", "parked")}.get(want)
+    picked = []
+    for name in sorted(rows, key=str.lower):
+        r = rows[name]
+        states = [r.get(ide) for ide in IDES]
+        if wanted and not any(s in wanted for s in states):
+            continue
+        if not wanted and want and want.lower() not in name.lower():
+            continue
+        picked.append((name, r["kind"], states))
+
+    for ide in IDES:
+        n = {s: sum(1 for r in rows.values() if r.get(ide) == s) for s in ("on", "manual", "off", "parked")}
+        parts = [paint(f"{n['on']} on", "32")] + \
+            ([paint(f"{n['manual']} manual", "33")] if n["manual"] else []) + \
+            [paint(f"{n['off'] + n['parked']} off", "31")]
+        print(f"{TITLE[ide]:9} " + (", ".join(parts) if present[ide] else paint("not installed", "2")))
+    if not picked:
+        print("\nno skill matches")
+        return 0
+    w = max(len(n) for n, _, _ in picked)      # never cut a name
+    k = max(len(kind) for _, kind, _ in picked)
+    print()
+    print(paint(f"{'skill':{w}}  {'kind':{k}}  " + "  ".join(f"{TITLE[i]:8}" for i in IDES), "1"))
+    for name, kind, states in picked:
+        cols = []
+        for s in states:
+            text, code = cell[s]
+            cols.append(paint(f"{text:8}", code))
+        print((f"{name:{w}}  {paint(f'{kind:{k}}', '2')}  " + "  ".join(cols)).rstrip())
+    print(paint("\non · the model sees it   manual · the model does not, you can call it   "
+                "off · neither   · · not in this IDE", "2"))
+    return 0
+
+
+HELP = """\
+usage: myskill <command> [name...]
+
+  on | manual | off <name>...   set the state, in every IDE (table below)
+  deps   <name>...   what needs it: hooks, rules, other skills
+  unusable           skills that cannot work on this machine: a variable,
+                     program or MCP server from requires.json missing
+  probe              suggestions for requires.json; writes nothing
+  list   [on|manual|off|<text>] [--json]
+                     one row per skill, one column per IDE, in these states
+  apply              re-hide what an update or an install brought back;
+                     runs from a SessionStart hook
+
+states:
++--------+------------+----------+-------------+-------+----------------+
+| state  | model sees | you call | Claude Code | Codex | Opencode       |
++--------+------------+----------+-------------+-------+----------------+
+| on     | yes        | yes      | /name       | $name | /name          |
+| manual | no         | yes      | /name       | $name | /name, /skills |
+| off    | no         | no       | -           | -     | impossible:    |
+|        |            |          |             |       | gets manual    |
+| ·      | not in that IDE                                              |
++--------+--------------------------------------------------------------+
+  plugin skill   Claude Code, Codex: no manual - manual gives off
+  command        Opencode: always manual; Codex: none, so ·
+
+manual and off skip a skill that something needs; --force overrides.
+
+limits:
+  deps           finds the name, not the intent: a rule that offers you
+                 /review counts as needing review. Read the line it prints
+  Codex manual   lives in the skill folder: <skill>/agents/openai.yaml.
+                 If that folder is a copy, the file goes to the source
+                 too, and you commit it: MYSKILL_CANON, else
+                 ~/ai-config-source. Neither: the next copy drops the file
+  new session    every change loads in a new session, not the current one
+
+examples:
+  myskill list deploy                 rows whose name contains "deploy"
+  myskill list off                    off in at least one IDE
+  myskill list manual                 manual in at least one IDE
+  myskill manual diagram review       hidden from the model, /diagram works
+  myskill deps notes                  why notes has to stay on
+  myskill unusable                    candidates to switch off or delete
+  myskill off acme:lint               a plugin's skill, as <plugin>:<skill>
+  myskill on diagram                  back to the default"""
+
+
+def main(argv):
+    if len(argv) < 2 or argv[1] in ("-h", "--help", "help"):
+        print(HELP)
+        return 0 if len(argv) >= 2 else 2
+    cmd, names = argv[1], argv[2:]
+    if cmd == "list":
+        return cmd_list(names)
+    if cmd == "unusable":
+        return cmd_unusable()
+    if cmd == "probe":
+        return cmd_probe()
+    if cmd == "apply":
+        return cmd_apply()
+    force = "--force" in names
+    names = [n for n in names if n != "--force"]
+    if cmd not in ("on", "off", "manual", "deps") or not names:
+        print("myskill: usage: myskill on|manual|off|deps <name>... | list | apply — see myskill --help",
+              file=sys.stderr)
+        return 2
+    bad = [n for n in names if not NAME.match(n)]
+    if bad:
+        print(f"myskill: not a skill name: {' '.join(bad)}", file=sys.stderr)
+        return 2
+    if cmd == "deps":
+        docs = corpus()
+        for n in names:
+            hits = dependents(n, docs)
+            if hits:
+                show_dependents(n, hits, sys.stdout)
+            else:
+                print(f"{n}: nothing needs it")
+        return 0
+    skipped = []
+    if cmd != "on" and not force:
+        docs = corpus()
+        for n in names:
+            hits = dependents(n, docs)
+            if hits:
+                show_dependents(n, hits, sys.stderr)
+                skipped.append(n)
+        if skipped:
+            print(f"skipped: {' '.join(skipped)} — something needs them; --force to {cmd} anyway",
+                  file=sys.stderr)
+        names = [n for n in names if n not in skipped]
+        if not names:
+            return 1
+    for line in (claude(names, cmd), codex(names, cmd), opencode(names, cmd)):
+        print(line)
+    if cmd == "on":
+        for n in names:
+            for d in parked(n):
+                print(f"  note: {d.replace(H, '~')} is still parked — move it back to load it")
+    print("Restart the IDE (or start a new session) for the change to load.")
+    return 1 if skipped else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
