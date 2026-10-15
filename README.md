@@ -4,9 +4,13 @@
 does this in Claude Code, Codex and Opencode at once, through each IDE's own
 setting.**
 
-`myskill` is a CLI and a skill that calls it. It moves no skill folder and
-keeps no state of its own: the state lives in `settings.json`, `config.toml`
-and `opencode.json`, where each IDE reads it.
+**It works from a plain terminal.** `myskill` is a CLI: run it in any shell,
+with no assistant open and no session to start. The `/myskill` skill
+(`$myskill` in Codex) is an extra: it runs the same CLI when you would rather
+ask the assistant.
+
+`myskill` moves no skill folder and keeps no state of its own: the state lives
+in `settings.json`, `config.toml` and `opencode.json`, where each IDE reads it.
 
 **No time to read?** → [Fast start](FAST-START.md) · [Быстрый старт](FAST-START.RU.md)
 
@@ -40,7 +44,7 @@ gives the same result in all three IDEs.
 | File | What it does |
 |---|---|
 | `bin/myskill` | the CLI: `list`, `on`, `manual`, `off`, `deps`, `unusable`, `probe`, `apply` |
-| `skills/myskill/SKILL.md` | the skill: `/myskill` in Claude Code and Opencode, `$myskill` in Codex |
+| `skills/myskill/SKILL.md` | optional: the skill that runs the CLI from a session — `/myskill` in Claude Code and Opencode, `$myskill` in Codex |
 | `commands/myskill.md` | the `/myskill` command of Opencode |
 | `requires.example.json` | the template of `requires.json`: what each skill needs to work — variables, programs, MCP servers |
 | `lib/wire.py` | wires the `SessionStart` hook `myskill apply` into Claude Code and Codex |
@@ -80,9 +84,8 @@ Restart the IDE after the install: skills and hooks are read at start-up.
 
 ## Usage
 
-Ask the assistant: "turn off deploy", "hide diagram from the model", "what
-needs notes". Or run the CLI in any shell. The skill names below are examples;
-use the names from `myskill list`.
+Run the CLI in any terminal; no assistant has to be open. The skill names below
+are examples; use the names from `myskill list`.
 
 ```bash
 myskill list                    # a row per skill, a column per IDE
@@ -101,6 +104,9 @@ in at least one IDE. The counters at the top always cover every skill:
 [![myskill list on](docs/list-on.png)](docs/list-on.png)
 
 [![myskill list off](docs/list-off.png)](docs/list-off.png)
+
+Optionally, ask the assistant instead: "turn off deploy", "hide diagram from
+the model", "what needs notes". The skill runs the same commands.
 
 ### The states
 

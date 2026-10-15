@@ -6,6 +6,9 @@
 settings, the name each IDE expects in them, and the cases where the setting
 alone is not enough.
 
+Because the state is plain files, `myskill` needs no IDE running: run it from
+any terminal. The skill is only one more way to start the same command.
+
 ## Claude Code
 
 | State | What `myskill` writes |

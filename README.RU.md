@@ -3,9 +3,14 @@
 **Одна команда включает скил, прячет его от модели или выключает. Сразу в
 Claude Code, Codex и Opencode, и в каждой IDE — её собственной настройкой.**
 
-`myskill` — это CLI и скил, который его вызывает. Каталоги скилов он не
-переносит и своего состояния не хранит: состояние лежит в `settings.json`,
-`config.toml` и `opencode.json`, там, где его читает сама IDE.
+**Работает прямо из терминала.** `myskill` — это CLI: его запускают в любой
+консоли, не открывая ассистента и не начиная сессию. Скил `/myskill`
+(`$myskill` в Codex) — дополнительная возможность: он вызывает тот же CLI,
+если удобнее попросить ассистента.
+
+Каталоги скилов `myskill` не переносит и своего состояния не хранит:
+состояние лежит в `settings.json`, `config.toml` и `opencode.json`, там, где
+его читает сама IDE.
 
 **Некогда читать?** → [Быстрый старт](FAST-START.RU.md) · [Fast start](FAST-START.md)
 
@@ -38,7 +43,7 @@ Claude Code, Codex и Opencode, и в каждой IDE — её собствен
 | Файл | Что делает |
 |---|---|
 | `bin/myskill` | CLI: `list`, `on`, `manual`, `off`, `deps`, `unusable`, `probe`, `apply` |
-| `skills/myskill/SKILL.md` | скил: `/myskill` в Claude Code и Opencode, `$myskill` в Codex |
+| `skills/myskill/SKILL.md` | необязательный скил, который вызывает CLI из сессии: `/myskill` в Claude Code и Opencode, `$myskill` в Codex |
 | `commands/myskill.md` | команда `/myskill` для Opencode |
 | `requires.example.json` | шаблон `requires.json`: что нужно каждому скилу для работы — переменные, программы, MCP-серверы |
 | `lib/wire.py` | подключает хук `SessionStart` `myskill apply` в Claude Code и Codex |
@@ -81,9 +86,8 @@ cd myskills
 
 ## Как пользоваться
 
-Скажите ассистенту: «отключи deploy», «скрой от модели diagram», «что зависит
-от notes». Или вызовите CLI в любом терминале. Имена скилов ниже — примеры;
-настоящие имена показывает `myskill list`.
+Запускайте CLI в любом терминале, ассистент для этого не нужен. Имена скилов
+ниже — примеры; настоящие имена показывает `myskill list`.
 
 ```bash
 myskill list                    # строка на скил, столбец на IDE
@@ -102,6 +106,9 @@ myskill unusable                # скилы, которые на этой ма�
 [![myskill list on](docs/list-on.png)](docs/list-on.png)
 
 [![myskill list off](docs/list-off.png)](docs/list-off.png)
+
+Можно и попросить ассистента: «отключи deploy», «скрой от модели diagram»,
+«что зависит от notes». Скил выполнит те же команды.
 
 ### Состояния
 

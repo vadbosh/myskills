@@ -12,7 +12,23 @@ myskill list             # a row per skill = it works
 
 Restart the IDE: skills and hooks are read at start-up.
 
-## Then talk to the assistant
+## Then, in any terminal
+
+No assistant has to be open: `myskill` is an ordinary command.
+
+```bash
+myskill list             # every skill, its state in each IDE
+myskill list off         # off in at least one IDE
+myskill manual diagram   # hidden from the model, /diagram still works
+myskill off deploy       # off in all three IDEs
+myskill on diagram       # back to the default
+myskill deps notes       # the hooks, rules and skills that name it
+```
+
+## Or ask the assistant
+
+An extra, not a requirement: the skill runs the same CLI from inside a
+session.
 
 | You say | What happens |
 |---|---|
@@ -23,7 +39,7 @@ Restart the IDE: skills and hooks are read at start-up.
 | `turn on diagram` | back to the default |
 | `what needs notes` | the hooks, rules and skills that name it |
 
-In Codex the skill is `$myskill`. In any shell the CLI is `myskill`.
+In Codex the skill is `$myskill`.
 
 ## States
 

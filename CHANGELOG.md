@@ -6,6 +6,8 @@
 
 - The README screenshots are smaller: 13 px text at 1.5× instead of 15 px at
   2×, about 660 px wide instead of 1020.
+- The docs say first that `myskill` is a command for any terminal, with no
+  assistant open; the skill is described as an optional way to run it.
 
 ## 0.1.2 — 2026-10-15
 
