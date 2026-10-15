@@ -17,9 +17,11 @@ rewrites.
 An entry counts as ours when its command's program is `myskill`, whatever
 directory it is in: an entry made by hand, or by the ai-config-source canon
 before myskill moved out of it, is kept and never doubled, and --remove takes
-out only ours. Every other key and entry is left as it was. A configuration
-file is backed up before it is written, outside every directory an assistant
-reads (~/.local/state/myskill/backups/).
+out only ours. A hook that only mentions myskill as an argument is not ours.
+Every other key and entry is left as it was. A configuration file is backed up
+before it is written, outside every directory an assistant reads
+(MYSKILL_BACKUP_DIR, else ~/.local/state/myskill/backups/); a symlinked one is
+written through the link, so a dotfiles checkout keeps the change.
 
 Exit codes: 0 done or already current, 3 no configuration file (the assistant
 is not set up — not an error), 1 the file could not be read or written.
@@ -27,13 +29,15 @@ is not set up — not an error), 1 the file could not be read or written.
 import argparse
 import json
 import os
+import re
+import shlex
 import shutil
 import sys
 import time
 
 HOME = os.path.expanduser("~")
-STATE = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(HOME, ".local", "state"), "myskill")
-BACKUPS = os.path.join(STATE, "backups")
+BACKUPS = os.environ.get("MYSKILL_BACKUP_DIR") or os.path.join(
+    os.environ.get("XDG_STATE_HOME") or os.path.join(HOME, ".local", "state"), "myskill", "backups")
 
 CONFIG = {
     "claude": os.path.join(HOME, ".claude", "settings.json"),
@@ -43,13 +47,53 @@ EVENT = "SessionStart"
 PROGRAM = "myskill"
 ARGS = "apply"
 TIMEOUT = 5
+ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+INTERPRETERS = re.compile(r"^(env|sh|bash|zsh|python[0-9.]*)$")
+
+
+def program(hook):
+    """The program a hook runs: the first word that is not `VAR=value`, an
+    interpreter or an interpreter's option. Backslashes count as separators."""
+    command = (hook.get("command") or "").replace("\\", "/")
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = command.split()
+    after_interpreter = False
+    for w in words + list(hook.get("args") or []):
+        name = os.path.basename(w)
+        if ASSIGNMENT.match(w) or (after_interpreter and w.startswith("-")):
+            continue
+        if INTERPRETERS.match(name):
+            after_interpreter = True
+            continue
+        return name
+    return ""
 
 
 def is_ours(hook):
-    """`/path/myskill apply`, or `python /path/myskill apply`. Backslashes
-    count as separators."""
-    words = (hook.get("command") or "").split() + list(hook.get("args") or [])
-    return any(os.path.basename(w.strip('"\'').replace("\\", "/")) == PROGRAM for w in words)
+    """`/path/myskill apply`, `"/a b/myskill" apply`, `python /path/myskill apply`;
+    not `other-tool myskill`."""
+    return program(hook) == PROGRAM
+
+
+def shape_error(data):
+    """Why the hooks of this file cannot be edited safely, or None."""
+    hooks = data.get("hooks")
+    if hooks is None:
+        return None
+    if not isinstance(hooks, dict):
+        return "hooks is not an object"
+    entries = hooks.get(EVENT)
+    if entries is None:
+        return None
+    if not isinstance(entries, list):
+        return f"hooks.{EVENT} is not a list"
+    for e in entries:
+        if not isinstance(e, dict) or not isinstance(e.get("hooks", []), list) \
+                or not all(isinstance(h, dict) for h in e.get("hooks", [])):
+            return f"hooks.{EVENT} holds an entry that is not an object with a hooks list"
+    return None
 
 
 def wire_hooks(data, bindir, remove):
@@ -72,7 +116,9 @@ def wire_hooks(data, bindir, remove):
                 hooks.pop(EVENT, None)
             changed.append(f"{EVENT} hook removed ({PROGRAM} {ARGS})")
     elif not ours:
-        hook = {"type": "command", "command": f"{os.path.join(bindir, PROGRAM)} {ARGS}", "timeout": TIMEOUT}
+        # Quoted: hook commands go through a shell, and a HOME may hold a space.
+        hook = {"type": "command", "command": f"{shlex.quote(os.path.join(bindir, PROGRAM))} {ARGS}",
+                "timeout": TIMEOUT}
         hooks.setdefault(EVENT, []).append({"matcher": "", "hooks": [hook]})
         changed.append(f"{EVENT} hook added ({PROGRAM} {ARGS})")
     if not hooks:
@@ -90,6 +136,9 @@ def backup(path):
 
 
 def atomic_write(path, text):
+    # Through a symlink, not over it: os.replace on the link itself would turn
+    # a dotfiles-managed file into a plain copy that the dotfiles never see.
+    path = os.path.realpath(path)
     tmp = f"{path}.myskill-tmp.{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as fh:
         fh.write(text)
@@ -123,6 +172,10 @@ def main(argv):
             return 1
         if not isinstance(data, dict):
             print(f"    {path} is not a JSON object — left untouched", file=sys.stderr)
+            return 1
+        why = shape_error(data)
+        if why:
+            print(f"    {path}: {why} — left untouched", file=sys.stderr)
             return 1
 
     changed = wire_hooks(data, a.bin, a.remove)

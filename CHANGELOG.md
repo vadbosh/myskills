@@ -6,6 +6,30 @@
 
 - Comments in `bin/myskill` and `tests/test_myskill.sh` use example names
   instead of the skills of the machine they were measured on.
+- `skills/myskill/agents/openai.yaml` is no longer shipped. It was the
+  `manual` setting of one machine, and every install made `myskill` manual in
+  Codex.
+
+### Fixed
+
+Found by `review-2026-10-15-installer.md`; the item numbers are its own.
+
+- A1: `install.sh` keeps the Codex manual file that `myskill manual myskill`
+  wrote. Before, every reinstall replaced the folder and undid `on` or
+  `manual`.
+- A2: `release.sh check` compares installed skill folders as a whole. Before,
+  it reported "everything agrees" when an installed file was missing or extra.
+- A3: `lib/wire.py` writes a symlinked `settings.json` through the link.
+  Before, it replaced the link with a plain file.
+- A4: a hook is ours only when its program is `myskill`. Before, a hook that
+  named `myskill` as an argument stopped the wiring, and `--remove` deleted it.
+- A5: the final check of `install.sh` starts neither opencode nor codex. A
+  failing `myskill list` is reported as what it said, not as "did not run".
+- A6: the hook command quotes its path, so a `HOME` with a space works.
+- A7: a `hooks` value of the wrong type gives a message, not a traceback.
+- A8: `install.sh --ide` with an unknown name exits before writing anything.
+- `lib/wire.py` and `install.sh` honour `MYSKILL_BACKUP_DIR`, as the README
+  says.
 
 ## 0.1.0 — 2026-10-14
 

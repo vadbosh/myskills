@@ -45,6 +45,7 @@ gives the same result in all three IDEs.
 | `requires.example.json` | the template of `requires.json`: what each skill needs to work — variables, programs, MCP servers |
 | `lib/wire.py` | wires the `SessionStart` hook `myskill apply` into Claude Code and Codex |
 | `install.sh` | copies all of the above and wires the hook |
+| `lib/skillfiles.sh` | decides when an installed skill folder matches this checkout; `install.sh` and `release.sh` both read it |
 | `release.sh` | checks that the changelog, the tag and the installed copies agree |
 | `tests/` | `test_myskill.sh` for the CLI, `test_install.sh` for the installer; both run in a temporary `HOME` |
 
@@ -71,8 +72,9 @@ What goes where:
 
 `install.sh` changes nothing on a second run. It backs up a file or a skill
 folder it replaces to `~/.local/state/myskill/backups/`, outside every
-directory an IDE reads. An existing hook entry whose program is `myskill` is
-kept and never doubled. `--ide claude|codex|opencode` limits the run to one IDE.
+directory an IDE reads; `MYSKILL_BACKUP_DIR` moves them. An existing hook
+entry whose program is `myskill` is kept and never doubled. If you ran
+`myskill manual myskill`, the Codex file it wrote stays after a reinstall. `--ide claude|codex|opencode` limits the run to one IDE.
 
 Restart the IDE after the install: skills and hooks are read at start-up.
 

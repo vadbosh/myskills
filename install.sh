@@ -18,10 +18,12 @@
 #                                        wired by lib/wire.py
 #
 # Idempotent: a second run changes nothing. A file or skill folder it would
-# replace with different content is backed up to ~/.local/state/myskill/backups/
-# first — outside every directory an assistant reads, so a backup never loads
-# as a second skill. A symlink in place of a file (the canon installed the CLI
-# that way) is replaced by a copy. Nothing outside $HOME is written.
+# replace with different content is backed up to $MYSKILL_BACKUP_DIR, else
+# ~/.local/state/myskill/backups/, first — outside every directory an assistant
+# reads, so a backup never loads as a second skill. A Codex manual file that
+# `myskill manual myskill` wrote is kept across the replacement. A symlink in
+# place of a file (the canon installed the CLI that way) is replaced by a copy.
+# Nothing outside $HOME is written.
 set -euo pipefail
 
 # Not ${1/#$HOME/\~}: bash 3.2, the one macOS ships, keeps the backslash.
@@ -30,15 +32,20 @@ tilde() { case "$1" in "$HOME"*) printf '~%s' "${1#"$HOME"}" ;; *) printf '%s' "
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/myskill"
-STATE="${XDG_STATE_HOME:-$HOME/.local/state}/myskill"
+BACKUPS="${MYSKILL_BACKUP_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/myskill/backups}"
 DRY_RUN=0
 ONLY_IDE=""
+# shellcheck source=lib/skillfiles.sh
+. "$SRC/lib/skillfiles.sh"
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --dry-run) DRY_RUN=1 ;;
-        --ide)     ONLY_IDE="${2:?--ide needs claude, codex or opencode}"; shift ;;
-        -h|--help) sed -n '2,24p' "${BASH_SOURCE[0]}" | sed -e 's/^# //' -e 's/^#$//'; exit 0 ;;
+        --ide)     ONLY_IDE="${2:?--ide needs claude, codex or opencode}"; shift
+                   case "$ONLY_IDE" in claude|codex|opencode) ;;
+                       *) echo "--ide needs claude, codex or opencode, not: $ONLY_IDE" >&2; exit 2 ;;
+                   esac ;;
+        -h|--help) sed -n '2,26p' "${BASH_SOURCE[0]}" | sed -e 's/^# //' -e 's/^#$//'; exit 0 ;;
         *)         echo "unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -52,11 +59,11 @@ python3 -c 'import sys; sys.exit(sys.version_info < (3, 8))' || { bad "myskill n
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 
-keep_backup() { # keep_backup PATH — copy a file or folder to $STATE/backups
-    mkdir -p "$STATE/backups" && chmod 700 "$STATE" "$STATE/backups"
+keep_backup() { # keep_backup PATH — copy a file or folder to $BACKUPS
+    mkdir -p "$BACKUPS" && chmod 700 "$BACKUPS"
     local tag
     tag="$(tilde "$1" | tr '/' '-' | sed -e 's/^~-//' -e 's/^-//' -e 's/^\.//' -e 's/-\./-/g')"
-    cp -rp "$1" "$STATE/backups/$tag.bak.$STAMP"
+    cp -rp "$1" "$BACKUPS/$tag.bak.$STAMP"
 }
 
 # install_file SRC DST [MODE] — copy if missing or different; back up what it replaces.
@@ -78,14 +85,16 @@ install_file() {
     chmod "$mode" "$dst"
 }
 
-# install_dir SRC DST — replace the folder when it differs; back up what it replaces.
+# install_dir SRC DST — replace the folder when it differs; back up what it
+# replaces; keep the Codex manual file the user's `myskill manual` wrote.
 install_dir() {
-    local src="$1" dst="$2"
-    if [ -d "$dst" ] && [ ! -L "$dst" ] && diff -r "$src" "$dst" >/dev/null 2>&1; then
+    local src="$1" dst="$2" carry=0
+    if same_tree "$src" "$dst"; then
         say "    = $(tilde "$dst")/"; return
     fi
     if [ "$DRY_RUN" -eq 1 ]; then say "    would write $(tilde "$dst")/"; return; fi
     mkdir -p "$(dirname "$dst")"
+    carries_state "$src" "$dst" && carry=1
     if [ -e "$dst" ] || [ -L "$dst" ]; then
         if [ -d "$dst" ] && [ ! -L "$dst" ]; then keep_backup "$dst"; fi
         rm -rf -- "${dst:?}"
@@ -94,6 +103,10 @@ install_dir() {
         say "    + $(tilde "$dst")/"
     fi
     cp -r "$src" "$dst"
+    if [ "$carry" -eq 1 ]; then
+        mkdir -p "$dst/agents"
+        printf '%s\n' "$MYSKILL_MANUAL_YAML" > "$dst/agents/openai.yaml"
+    fi
 }
 
 wire() { # wire IDE — exit code: 0 ok, 3 not set up, 1 failed
@@ -154,10 +167,17 @@ done < <(detect_ides)
 
 say "── verify ──"
 if [ "$DRY_RUN" -eq 1 ]; then say "  dry run — nothing was installed"; exit 0; fi
-if "$BIN_DIR/myskill" --help | grep -q '^usage: myskill' && "$BIN_DIR/myskill" list >/dev/null; then
+help="$("$BIN_DIR/myskill" --help 2>&1)" || help=""
+case "$help" in
+    "usage: myskill"*) ;;
+    *) bad "  FAIL — $(tilde "$BIN_DIR/myskill") did not run"; exit 1 ;;
+esac
+# No probe: the installer starts neither opencode nor codex. A failing `list`
+# is about a configuration file the user owns, not about this install.
+if out="$(MYSKILL_NO_PROBE=1 "$BIN_DIR/myskill" list 2>&1 >/dev/null)"; then
     say "  ok — $(tilde "$BIN_DIR/myskill") runs and lists the skills"
 else
-    bad "  FAIL — $(tilde "$BIN_DIR/myskill") did not run"; exit 1
+    say "  installed; \`myskill list\` says: $out"
 fi
 if [ -n "$unwired" ]; then bad "Not wired:$unwired"; exit 1; fi
 say ""

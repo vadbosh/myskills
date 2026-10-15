@@ -16,6 +16,8 @@ tilde() { case "$1" in "$HOME"*) printf '~%s' "${1#"$HOME"}" ;; *) printf '%s' "
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SRC" || exit 2
+# shellcheck source=lib/skillfiles.sh
+. "$SRC/lib/skillfiles.sh"
 
 version() {
     sed -n 's/^## \([0-9][0-9.]*\) — .*/\1/p' CHANGELOG.md | head -1
@@ -23,18 +25,21 @@ version() {
 
 # Installed path for each shipped file, as install.sh writes it.
 installed() {
-    local data="${XDG_DATA_HOME:-$HOME/.local/share}/myskill" ide f
+    local data="${XDG_DATA_HOME:-$HOME/.local/share}/myskill"
     cat <<EOF
 bin/myskill $HOME/.local/bin/myskill
 commands/myskill.md $HOME/.config/opencode/commands/myskill.md
 EOF
     # Not in git, so not part of a release; compared only when there is one.
     [ -f requires.json ] && printf 'requires.json %s\n' "$data/requires.json"
-    for ide in "$HOME/.claude/skills" "$HOME/.codex/skills" "$HOME/.config/opencode/skills"; do
-        while IFS= read -r f; do
-            printf '%s %s\n' "$f" "$ide/${f#skills/}"
-        done < <(find skills/myskill -type f | sort)
-    done
+    return 0
+}
+
+# Installed skill folders, compared as a whole: a file missing from one, or
+# left over in one, makes it stale as surely as a changed file does.
+installed_dirs() {
+    printf '%s\n' "$HOME/.claude/skills/myskill" "$HOME/.codex/skills/myskill" \
+        "$HOME/.config/opencode/skills/myskill"
 }
 
 check() {
@@ -61,6 +66,14 @@ check() {
         n=$((n + 1))
         if ! cmp -s "$src" "$dst"; then echo "  installed:    $(tilde "$dst") differs from $src — ./install.sh"; stale=1; fi
     done < <(installed)
+    while IFS= read -r dst; do
+        [ -d "$dst" ] || continue       # that assistant is not set up
+        n=$((n + 1))
+        if ! same_tree skills/myskill "$dst"; then
+            echo "  installed:    $(tilde "$dst")/ differs from skills/myskill (a file changed, missing or extra) — ./install.sh"
+            stale=1
+        fi
+    done < <(installed_dirs)
     [ "$stale" -eq 0 ] && echo "  installed:    $n cop(ies), all identical to this checkout"
     [ "$stale" -eq 0 ] || bad=1
     if [ "$bad" -eq 0 ]; then echo "  everything agrees on $v"; return 0; fi
