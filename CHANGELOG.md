@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The README screenshots are smaller: 13 px text at 1.5× instead of 15 px at
+  2×, about 660 px wide instead of 1020.
+
 ## 0.1.2 — 2026-10-15
 
 ### Added
