@@ -19,6 +19,14 @@ __pycache__/
 .codex/
 CLAUDE.local.md
 
+# The assistant's working notes, as in the other repositories of this author:
+# instruction files, kb notes and audit work orders stay on the machine.
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+kb/
+review-*.md
+
 # Editors and OS noise
 *.swp
 *~

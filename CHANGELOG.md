@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 — 2026-10-15
 
 ### Changed
 
@@ -12,7 +12,8 @@
 
 ### Fixed
 
-Found by `review-2026-10-15-installer.md`; the item numbers are its own.
+Found by an audit of the installer on 2026-10-15; A1–A8 are its item
+numbers.
 
 - A1: `install.sh` keeps the Codex manual file that `myskill manual myskill`
   wrote. Before, every reinstall replaced the folder and undid `on` or

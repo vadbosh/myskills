@@ -82,7 +82,7 @@ bash "$SRC/install.sh" --dry-run > /dev/null 2>&1
 if [ "$before" = "$(find "$tmp" -type f -not -path "$SRC/*" | sort | xargs cksum)" ]; then ok "--dry-run writes nothing"
 else no "--dry-run writes nothing" "files changed"; fi
 
-# ── review-2026-10-15-installer.md: one group per item ──────────────────────
+# ── installer audit of 2026-10-15 (A1–A8, B1): one group per item ─────────────
 fresh() { # fresh NAME — a HOME with all three assistants set up, printed
     local h="$tmp/$1"
     mkdir -p "$h/.claude" "$h/.codex" "$h/.config/opencode" "$h/.local/bin"
@@ -112,10 +112,13 @@ else no "A1: on, then install — the file does not come back" "$y exists"; fi
 
 # A2: release.sh check sees a missing and an extra file in an installed folder.
 rel="$tmp/rel"; mkdir -p "$rel"
-cp -r "$SRC/." "$rel/"; cp "$REPO/release.sh" "$REPO/CHANGELOG.md" "$REPO/.gitignore" "$rel/"
+cp -r "$SRC/." "$rel/"; cp "$REPO/release.sh" "$REPO/.gitignore" "$rel/"
+# A fixture changelog: the checkout's own has no "## Unreleased" right after a
+# release, and then every commit below would fail the check for that reason.
+printf '# Changelog\n\n## Unreleased\n\n## 1.0.0 — 2026-01-01\n' > "$rel/CHANGELOG.md"
 git -C "$rel" init -q && git -C "$rel" add -A &&
     git -C "$rel" -c user.name=t -c user.email=t@t commit -qm t &&
-    git -C "$rel" -c user.name=t -c user.email=t@t tag -a "v$(sed -n 's/^## \([0-9][0-9.]*\) — .*/\1/p' "$rel/CHANGELOG.md" | head -1)" -m t
+    git -C "$rel" -c user.name=t -c user.email=t@t tag -a v1.0.0 -m t
 h="$(fresh a2)"
 HOME="$h" bash "$rel/install.sh" > /dev/null 2>&1
 chk() { HOME="$h" bash "$rel/release.sh" check > "$tmp/chk.out" 2>&1; echo $?; }
