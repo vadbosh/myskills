@@ -96,6 +96,13 @@ myskill deps notes              # кому он нужен: хуки, прави
 myskill unusable                # скилы, которые на этой машине не заработают
 ```
 
+`myskill list on` и `myskill list off` показывают строки, где это состояние
+есть хотя бы в одной IDE. Счётчики сверху всегда считают все скилы:
+
+[![myskill list on](docs/list-on.png)](docs/list-on.png)
+
+[![myskill list off](docs/list-off.png)](docs/list-off.png)
+
 ### Состояния
 
 | Состояние | Модель берёт сама | Вы вызываете | Claude Code | Codex | Opencode |

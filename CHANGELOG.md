@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The README shows `myskill list on` and `myskill list off`: `docs/list-on.png`
+  and `docs/list-off.png`, rendered from `docs/*.d2`. The `.d2` files hold the
+  real output of `myskill list` in a `HOME` with example skills.
+
 ## 0.1.1 — 2026-10-15
 
 ### Changed

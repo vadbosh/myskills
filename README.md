@@ -95,6 +95,13 @@ myskill deps notes              # what needs it: hooks, rules, other skills
 myskill unusable                # skills that cannot work on this machine
 ```
 
+`myskill list on` and `myskill list off` show the rows that have that state
+in at least one IDE. The counters at the top always cover every skill:
+
+[![myskill list on](docs/list-on.png)](docs/list-on.png)
+
+[![myskill list off](docs/list-off.png)](docs/list-off.png)
+
 ### The states
 
 | State | Model uses it by itself | You call it | Claude Code | Codex | Opencode |

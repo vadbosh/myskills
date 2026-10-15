@@ -1,0 +1,217 @@
+direction: down
+vars: {d2-config: {pad: 0}}
+term: "" {
+  grid-columns: 1
+  grid-gap: 14
+  style: {fill: "#1f2430"; stroke: "#1f2430"; border-radius: 8}
+  prompt: '$ myskill list off' {
+    width: 182
+    height: 26
+    label.near: center-left
+    style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: true}
+  }
+  summary: "" {
+    grid-rows: 3
+    grid-columns: 4
+    grid-gap: 0
+    style: {fill: transparent; stroke-width: 0}
+    r0c0: 'Claude' {
+      width: 91
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: false}
+    }
+    r0c1: '7 on,' {
+      width: 54
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#9ccc65"; bold: false}
+    }
+    r0c2: '2 manual,' {
+      width: 91
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#e0a75e"; bold: false}
+    }
+    r0c3: '3 off' {
+      width: 54
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#ef7a7a"; bold: false}
+    }
+    r1c0: 'Codex' {
+      width: 91
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: false}
+    }
+    r1c1: '3 on,' {
+      width: 54
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#9ccc65"; bold: false}
+    }
+    r1c2: '2 manual,' {
+      width: 91
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#e0a75e"; bold: false}
+    }
+    r1c3: '2 off' {
+      width: 54
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#ef7a7a"; bold: false}
+    }
+    r2c0: 'Opencode' {
+      width: 91
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: false}
+    }
+    r2c1: '4 on,' {
+      width: 54
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#9ccc65"; bold: false}
+    }
+    r2c2: '4 manual,' {
+      width: 91
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#e0a75e"; bold: false}
+    }
+    r2c3: '0 off' {
+      width: 54
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#ef7a7a"; bold: false}
+    }
+  }
+  table: "" {
+    grid-rows: 4
+    grid-columns: 5
+    grid-gap: 0
+    style: {fill: transparent; stroke-width: 0}
+    r0c0: 'skill' {
+      width: 136
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: true}
+    }
+    r0c1: 'kind' {
+      width: 118
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: true}
+    }
+    r0c2: 'Claude' {
+      width: 72
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: true}
+    }
+    r0c3: 'Codex' {
+      width: 63
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: true}
+    }
+    r0c4: 'Opencode' {
+      width: 91
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: true}
+    }
+    r1c0: 'acme:test' {
+      width: 136
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: false}
+    }
+    r1c1: 'acme plugin' {
+      width: 118
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#a3aab8"; bold: false}
+    }
+    r1c2: 'off' {
+      width: 72
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#ef7a7a"; bold: false}
+    }
+    r1c3: '·' {
+      width: 63
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#6b7280"; bold: false}
+    }
+    r1c4: '·' {
+      width: 91
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#6b7280"; bold: false}
+    }
+    r2c0: 'changelog' {
+      width: 136
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: false}
+    }
+    r2c1: 'skill' {
+      width: 118
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#a3aab8"; bold: false}
+    }
+    r2c2: 'off' {
+      width: 72
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#ef7a7a"; bold: false}
+    }
+    r2c3: 'off' {
+      width: 63
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#ef7a7a"; bold: false}
+    }
+    r2c4: 'manual' {
+      width: 91
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#e0a75e"; bold: false}
+    }
+    r3c0: 'cluster-debug' {
+      width: 136
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#d8dee9"; bold: false}
+    }
+    r3c1: 'skill' {
+      width: 118
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#a3aab8"; bold: false}
+    }
+    r3c2: 'off' {
+      width: 72
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#ef7a7a"; bold: false}
+    }
+    r3c3: 'off' {
+      width: 63
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#ef7a7a"; bold: false}
+    }
+    r3c4: '·' {
+      width: 91
+      height: 26
+      label.near: center-left
+      style: {fill: transparent; stroke-width: 0; font: mono; font-size: 15; font-color: "#6b7280"; bold: false}
+    }
+  }
+}
