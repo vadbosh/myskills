@@ -4,7 +4,7 @@
 does this in Claude Code, Codex and Opencode at once, through each IDE's own
 setting.**
 
-**It works from a plain terminal.** `myskill` is a CLI: run it in any shell,
+**It works from a plain terminal.** `myskill` is a CLI: run it in any terminal,
 with no assistant open and no session to start. The `/myskill` skill
 (`$myskill` in Codex) is an extra: it runs the same CLI when you would rather
 ask the assistant.
