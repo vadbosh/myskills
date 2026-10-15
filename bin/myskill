@@ -96,8 +96,55 @@ def load_json(path):
         sys.exit(f"myskill: {path} is not valid JSON — not touched")
 
 
+def strip_jsonc(text):
+    """JSONC as plain JSON, and whether it held a comment. Opencode reads its
+    config as JSONC, and writes a trailing comma itself: `{}` became
+    `{"$schema": "…",}` after one `opencode debug skill`. Strings are copied
+    as they are; `//` and `/* */` comments go, and so does a comma before
+    `}` or `]`."""
+    out, run, i, n, comments = [], [], 0, len(text), False
+
+    def flush():
+        out.append(re.sub(r",(\s*[}\]])", r"\1", "".join(run)))
+        run.clear()
+    while i < n:
+        if text[i] == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            flush()
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            j = text.find("\n", i)
+            i, comments = (n if j < 0 else j), True
+        elif text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i, comments = (n if j < 0 else j + 2), True
+        else:
+            run.append(text[i])
+            i += 1
+    flush()
+    return "".join(out), comments
+
+
+def load_jsonc(path):
+    """(data, held a comment) of a JSONC file; (None, False) when missing."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            plain, comments = strip_jsonc(fh.read())
+        return json.loads(plain), comments
+    except FileNotFoundError:
+        return None, False
+    except ValueError:
+        sys.exit(f"myskill: {path} is not valid JSON or JSONC — not touched")
+
+
 def save_json(path, data):
     backup(path)
+    # Through a symlink, not over it: os.replace on the link itself would turn
+    # a dotfiles-managed file into a plain copy that the dotfiles never see.
+    path = os.path.realpath(path)
     tmp = path + ".myskill.tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, indent=2, ensure_ascii=False)
@@ -541,7 +588,7 @@ def opencode(names, mode):
     # deny is already "manual" there: hidden from the model, /skills runs it.
     off = mode != "on"
     path = opencode_path()
-    data = load_json(path) if path else None
+    data, comments = load_jsonc(path) if path else (None, False)
     if data is None:
         return "Opencode: no opencode.json — skipped"
     perm = data.setdefault("permission", {})
@@ -573,6 +620,11 @@ def opencode(names, mode):
         perm.pop("skill")
     if not perm:
         data.pop("permission")
+    if changed and comments:
+        # Writing it back as JSON would drop every comment without a word.
+        want = ", ".join(f'"{n}": "deny"' for n in changed) if off else ", ".join(changed)
+        what = f"add under permission.skill: {want}" if off else f"remove from permission.skill: {want}"
+        return f"Opencode: {path.replace(H, '~')} has comments — not touched; {what}"
     if changed:
         save_json(path, data)
     tail = (f"\n  note: {' '.join(commands)} — an Opencode command: the model never sees it, and "
@@ -887,7 +939,7 @@ def inventory():
     # Opencode
     if os.path.isdir(OPENCODE):
         path = opencode_path()
-        perm = (((load_json(path) if path else None) or {}).get("permission") or {}).get("skill") or {}
+        perm = (((load_jsonc(path)[0] if path else None) or {}).get("permission") or {}).get("skill") or {}
         deny = {k for k, v in perm.items() if v == "deny"} if isinstance(perm, dict) else set()
         # deny hides a skill from the model; you can still run it from /skills.
         for d, native, p in opencode_skills():

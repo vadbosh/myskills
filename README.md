@@ -126,6 +126,11 @@ Every change loads in a new session, not in the current one.
 - **A file of another author is not touched.** An `agents/openai.yaml` that
   `myskill` did not write stays as it is, and `manual` says so.
 - **A broken JSON file is not touched.** `myskill` stops and names the file.
+- **An `opencode.json` with comments is read but not rewritten.** Opencode
+  reads the file as JSONC. Writing it back as JSON would drop the comments, so
+  `off` and `on` print the entry to add or remove by hand.
+- **A symlinked config file stays a symlink.** The change goes into the file
+  it points to, so a dotfiles checkout keeps it.
 
 ## What a skill needs
 

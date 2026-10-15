@@ -282,6 +282,33 @@ else no "manual: without MYSKILL_CANON the Codex file goes to ~/ai-config-source
 env -u MYSKILL_CANON "$M" on cskill > /dev/null
 rm -r "$tmp/ai-config-source"
 
+# ── opencode.json is JSONC; settings.json may be a dotfiles symlink ──────────
+h="$tmp/jc"; mkdir -p "$h/.claude/skills/own" "$h/.codex" "$h/.config/opencode" "$h/dot"
+printf -- '---\nname: own\n---\n' > "$h/.claude/skills/own/SKILL.md"
+: > "$h/.codex/config.toml"
+in_h () { HOME="$h" CLAUDE_CONFIG_DIR="$h/.claude" CODEX_HOME="$h/.codex" XDG_CONFIG_HOME="$h/.config" "$M" "$@"; }
+# What Opencode itself leaves behind: a URL with // in a string, a trailing comma.
+printf '{\n  "$schema": "https://opencode.ai/config.json",\n  "keep": "a,}",\n}\n' > "$h/.config/opencode/opencode.json"
+printf '{"model": "x"}\n' > "$h/dot/settings.json"; ln -s "$h/dot/settings.json" "$h/.claude/settings.json"
+in_h off own > "$tmp/jc.out" 2>&1; rc=$?
+if [ "$rc" -eq 0 ] && J "$h/.config/opencode/opencode.json" &&
+   grep -q '"own": "deny"' "$h/.config/opencode/opencode.json" && grep -q '"keep": "a,}"' "$h/.config/opencode/opencode.json" &&
+   grep -q 'https://opencode.ai/config.json' "$h/.config/opencode/opencode.json"; then
+    ok "Opencode: a trailing comma is read; strings with // and ,} survive the write"
+else no "Opencode: a trailing comma is read; strings with // and ,} survive the write" "rc $rc: $(cat "$tmp/jc.out" "$h/.config/opencode/opencode.json")"; fi
+if [ -L "$h/.claude/settings.json" ] && grep -q '"own": "off"' "$h/dot/settings.json"; then
+    ok "Claude Code: a symlinked settings.json stays a link, the target gets the change"
+else no "Claude Code: a symlinked settings.json stays a link, the target gets the change" "$(ls -l "$h/.claude/settings.json")"; fi
+in_h on own > /dev/null 2>&1
+printf '{\n  // mine\n  "permission": {"skill": {"own": "deny"}}\n}\n' > "$h/.config/opencode/opencode.json"
+cp "$h/.config/opencode/opencode.json" "$tmp/jc0"
+if in_h list --no-color > "$tmp/jc.out" 2>&1; then ok "list reads an opencode.json with a comment"
+else no "list reads an opencode.json with a comment" "$(cat "$tmp/jc.out")"; fi
+in_h on own > "$tmp/jc.out" 2>&1
+if cmp -s "$h/.config/opencode/opencode.json" "$tmp/jc0" && grep -q 'has comments — not touched; remove from permission.skill: own' "$tmp/jc.out"; then
+    ok "Opencode: a file with comments is not rewritten; the change to make is named"
+else no "Opencode: a file with comments is not rewritten; the change to make is named" "$(cat "$tmp/jc.out")"; fi
+
 echo
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

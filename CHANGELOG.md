@@ -30,6 +30,12 @@ Found by `review-2026-10-15-installer.md`; the item numbers are its own.
 - A8: `install.sh --ide` with an unknown name exits before writing anything.
 - `lib/wire.py` and `install.sh` honour `MYSKILL_BACKUP_DIR`, as the README
   says.
+- `myskill` reads `opencode.json` as JSONC, the format Opencode reads. Before,
+  one comment or trailing comma stopped every command with "not valid JSON",
+  and Opencode writes such a comma itself into a `{}` file. A file with
+  comments is not rewritten: `off` and `on` print the entry to change by hand.
+- `myskill` writes a symlinked `settings.json` or `opencode.json` through the
+  link, as `lib/wire.py` does after A3.
 
 ## 0.1.0 — 2026-10-14
 

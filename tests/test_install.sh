@@ -182,11 +182,11 @@ else no "A8: --ide claud exits 2 before writing" "rc $rc"; fi
 h="$(fresh a5)"; mkdir -p "$tmp/fakebin"
 printf '#!/bin/sh\ntouch "%s/started"\n' "$tmp" > "$tmp/fakebin/opencode"; cp "$tmp/fakebin/opencode" "$tmp/fakebin/codex"
 chmod 755 "$tmp/fakebin/opencode" "$tmp/fakebin/codex"
-printf '{\n  // a comment\n}\n' > "$h/.config/opencode/opencode.json"
+printf '{ "broken"\n' > "$h/.config/opencode/opencode.json"   # not even JSONC
 out="$(env -u MYSKILL_NO_PROBE HOME="$h" PATH="$tmp/fakebin:$PATH" bash "$SRC/install.sh" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && [[ "$out" == *"installed; \`myskill list\` says"* ]] && [[ "$out" != *"did not run"* ]]; then
-    ok "A5: an opencode.json with a comment — exit 0, says what list said"
-else no "A5: an opencode.json with a comment — exit 0, says what list said" "rc $rc: $out"; fi
+    ok "A5: an unreadable opencode.json — exit 0, says what list said"
+else no "A5: an unreadable opencode.json — exit 0, says what list said" "rc $rc: $out"; fi
 if [ ! -e "$tmp/started" ]; then ok "A5: the installer starts neither opencode nor codex"
 else no "A5: the installer starts neither opencode nor codex" "a fake IDE binary ran"; fi
 
