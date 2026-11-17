@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `.gitignore` carries the canonical ai-gitignore block (AI-assistant
+  artifacts and developer noise). Nothing tracked changes.
+
 ## 0.1.3 — 2026-10-15
 
 ### Changed
