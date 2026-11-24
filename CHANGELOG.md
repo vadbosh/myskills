@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.1.4 — 2026-11-24
 
+- **The skill description has no angle brackets.** `<name>` is now `NAME` in
+  the phrases the description lists. Claude Code showed it in its skill list
+  as `&lt;name&gt;`, and the Agent Skills schema rejects XML tags in a
+  description. Found by NVIDIA SkillEvaluator 1.2.0.
 - `.gitignore` carries the canonical ai-gitignore block (AI-assistant
   artifacts and developer noise). Nothing tracked changes.
 

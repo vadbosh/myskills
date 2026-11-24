@@ -1,6 +1,6 @@
 ---
 name: myskill
-description: Turn a skill on, manual or off in Claude Code, Codex and Opencode at once, show what needs a skill, and list states, by running the `myskill` CLI. Handles "/myskill", "myskill off|manual|on|deps <name>", "myskill list", "отключи скилл <name>", "скрой от модели <name>", "включи скилл <name>", "что зависит от <name>", "disable skill <name>", "enable skill <name>", "какие скилы выключены". Only runs the CLI; no overview of the skill system.
+description: Turn a skill on, manual or off in Claude Code, Codex and Opencode at once, show what needs a skill, and list states, by running the `myskill` CLI. Handles "/myskill", "myskill off|manual|on|deps NAME", "myskill list", "отключи скилл NAME", "скрой от модели NAME", "включи скилл NAME", "что зависит от NAME", "disable skill NAME", "enable skill NAME", "какие скилы выключены". Only runs the CLI; no overview of the skill system.
 version: "1.1.0"
 ---
 
